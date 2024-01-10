@@ -1,0 +1,11 @@
+VM ID: NeufloLearn
+VM Password: Learn@NEET321
+
+
+DB: neuflolearndb
+USER: neufloneet
+Password: LearnNEET321
+
+
+
+

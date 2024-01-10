@@ -1,0 +1,89 @@
+CREATE TABLE IF NOT EXISTS Subjects (
+    SubjectID SERIAL PRIMARY KEY,
+    SubjectName TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS Chapters (
+    ChapterID SERIAL PRIMARY KEY,
+    SubjectID INT NOT NULL,
+    ChapterTitle TEXT NOT NULL,
+    ChapterNumber INT NOT NULL,
+    FOREIGN KEY (SubjectID) REFERENCES Subjects(SubjectID)
+);
+
+CREATE TABLE IF NOT EXISTS Subtopics (
+    SubtopicID SERIAL PRIMARY KEY,
+    ChapterID INT NOT NULL,
+    SubtopicName TEXT NOT NULL,  -- Ensure this column name is correct
+    FOREIGN KEY (ChapterID) REFERENCES Chapters(ChapterID)
+);
+
+CREATE TABLE IF NOT EXISTS Questions (
+    QuestionID SERIAL PRIMARY KEY,
+    ChapterID INT NOT NULL,
+    SubtopicID INT,
+    QuestionNo INT NOT NULL,
+    Question TEXT NOT NULL,
+    OptionA TEXT,
+    OptionB TEXT,
+    OptionC TEXT,
+    OptionD TEXT,
+    Year TEXT,
+    Answer TEXT,  -- Changed from CHAR(1) to TEXT to accommodate multiple options
+    Explanation TEXT,
+    HasImage BOOLEAN DEFAULT FALSE,  -- New column to indicate the presence of an image
+    FOREIGN KEY (ChapterID) REFERENCES Chapters(ChapterID),
+    FOREIGN KEY (SubtopicID) REFERENCES Subtopics(SubtopicID)
+);
+
+CREATE TABLE IF NOT EXISTS Images (
+    ImageID SERIAL PRIMARY KEY,
+    QuestionID INT NOT NULL,
+    ImageURL TEXT NOT NULL,
+    ContentType TEXT NOT NULL, -- E.g., 'Question', 'OptionA', 'OptionB', 'OptionC', 'OptionD', 'Explanation'
+    FOREIGN KEY (QuestionID) REFERENCES Questions(QuestionID)
+
+);
+
+CREATE TABLE Tests (
+    TestID SERIAL PRIMARY KEY,
+    TestName VARCHAR(255) NOT NULL,
+    TestDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE TestQuestions (
+    TestID INT REFERENCES Tests(TestID),
+    QuestionID INT REFERENCES Questions(QuestionID),
+    PRIMARY KEY (TestID, QuestionID)
+);
+
+CREATE TABLE StudentResponses (
+    TestID INT REFERENCES Tests(TestID),
+    StudentID INT NOT NULL, -- Assuming you have a Students table
+    QuestionID INT REFERENCES Questions(QuestionID),
+    StudentResponse TEXT, -- Store the chosen option (A, B, C, D, etc.)
+    AnsweringTimeInSeconds INT, -- Optional: Time taken to answer the question in seconds
+    ResponseDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (TestID, StudentID, QuestionID)
+);
+
+CREATE TABLE OverallProficiency (
+    StudentID INT NOT NULL, -- Assuming you have a Students table
+    AverageCorrectAnswers NUMERIC, -- Average correct answers per test
+    AverageIncorrectAnswers NUMERIC, -- Average incorrect answers per test
+    AverageScore NUMERIC, -- Average score per test
+    AverageAnsweringTimeInSeconds NUMERIC, -- Average answering time per question in seconds
+    LastResponseDate TIMESTAMP, -- Last date when the student took the test
+    TotalTestsTaken INT, -- Total number of tests taken
+    PRIMARY KEY (StudentID)
+);
+
+CREATE TABLE ChapterWeightage (
+    WeightageID SERIAL PRIMARY KEY,
+    SubjectID INT NOT NULL REFERENCES Subjects(SubjectID),
+    ChapterID INT NOT NULL REFERENCES Chapters(ChapterID),
+    Weightage NUMERIC NOT NULL CHECK (Weightage >= 0 AND Weightage <= 100), -- Weightage as a percentage
+    Year INT NOT NULL, -- Year for which the weightage is applicable
+    UNIQUE (SubjectID, ChapterID, Year)
+);
