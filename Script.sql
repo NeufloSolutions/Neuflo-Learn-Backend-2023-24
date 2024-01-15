@@ -1,4 +1,4 @@
---1. Subjects Table
+
 -- This table stores information about the various subjects in the NEET syllabus.
 -- Each subject has a unique SubjectID and a name (SubjectName).
 CREATE TABLE IF NOT EXISTS Subjects (
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS Subjects (
 -- 2    Chemistry
 -- 3    Botany
 -- 4    Zoology
-
+select * from subjects;
 
 --2. Chapters Table
 -- This table lists the chapters for each subject, along with their titles and numbers.
@@ -92,31 +92,58 @@ CREATE TABLE IF NOT EXISTS PracticeTests (
     PracticeTestID SERIAL PRIMARY KEY,
     StudentID INT NOT NULL
 );
-select * from PracticeTests;
-DELETE FROM PracticeTests;
-DROP TABLE IF EXISTS PracticeTests CASCADE;
 
 
-
---2. PracticeTestQuestions Table
--- Creates a table for associating questions with practice tests.
--- 'PracticeTestID' refers to the practice test instance.
--- 'QuestionID' refers to the specific question from the Questions table.
-CREATE TABLE IF NOT EXISTS PracticeTestQuestions (
+--2. PracticeTestSubjects Table
+--
+--This table is designed to track each subject test within a practice test. It provides a link between the overall practice test and its individual subject components.
+--
+--PracticeTestSubjectID (SERIAL PRIMARY KEY): A unique identifier for each subject test within a practice test. It's an auto-incrementing integer.
+--PracticeTestID (INT): References the overall practice test to which this subject test belongs. It is a foreign key that links to the PracticeTests table.
+--SubjectName (VARCHAR(50)): Specifies the subject of the test. The value will be one of 'Biology', 'Chemistry', or 'Physics'.
+--IsCompleted (BOOLEAN): Indicates whether the subject test has been completed. The default value is FALSE.
+CREATE TABLE IF NOT EXISTS PracticeTestSubjects (
+    PracticeTestSubjectID SERIAL PRIMARY KEY,
     PracticeTestID INT NOT NULL,
+    SubjectName VARCHAR(50) NOT NULL,
+    IsCompleted BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (PracticeTestID) REFERENCES PracticeTests(PracticeTestID)
+);
+
+
+--3. PracticeTestQuestions Table
+--This table associates questions with each subject test within a practice test, ensuring that the appropriate questions are included for each subject area.
+--
+--PracticeTestSubjectID (INT): References the specific subject test. It is a foreign key that links to the PracticeTestSubjects table.
+--QuestionID (INT): Identifies the specific question from the Questions table.
+--The combination of PracticeTestSubjectID and QuestionID serves as the primary key, ensuring that each question is uniquely associated with a specific subject test.
+CREATE TABLE IF NOT EXISTS PracticeTestQuestions (
+    PracticeTestSubjectID INT NOT NULL,
     QuestionID INT NOT NULL,
-    PRIMARY KEY (PracticeTestID, QuestionID),
-    FOREIGN KEY (PracticeTestID) REFERENCES PracticeTests(PracticeTestID),
+    PRIMARY KEY (PracticeTestSubjectID, QuestionID),
+    FOREIGN KEY (PracticeTestSubjectID) REFERENCES PracticeTestSubjects(PracticeTestSubjectID),
     FOREIGN KEY (QuestionID) REFERENCES Questions(QuestionID)
 );
-select * from PracticeTestQuestions;
-DELETE FROM PracticeTestQuestions;
-DROP TABLE IF EXISTS PracticeTestQuestions CASCADE;
+
+--4. PracticeTestCompletion Table
+--This table is intended to track the overall completion status of each practice test by a student. It helps in monitoring whether a student has completed all subject tests within a given practice test.
+--
+--PracticeTestID (INT): References the practice test. It is a foreign key that links to the PracticeTests table.
+--StudentID (INT): Identifies the student who is taking the test.
+--IsCompleted (BOOLEAN): Indicates whether the student has completed the entire practice test (all subject tests). The default value is FALSE.
+--CompletionDate (TIMESTAMP): Records the date and time when the practice test was completed.
+--The combination of PracticeTestID and StudentID is the primary key for this table, ensuring a unique record for each student's attempt at a practice test.                
+CREATE TABLE IF NOT EXISTS PracticeTestCompletion (
+    PracticeTestID INT NOT NULL,
+    StudentID INT NOT NULL,
+    IsCompleted BOOLEAN DEFAULT FALSE,
+    CompletionDate TIMESTAMP,
+    PRIMARY KEY (PracticeTestID, StudentID),
+    FOREIGN KEY (PracticeTestID) REFERENCES PracticeTests(PracticeTestID)
+);
 
 
-
-
--- 3. NEETMockTests Table 
+-- 5. NEETMockTests Table 
 -- Creates a table for storing NEET mock test instances for each student.
 -- 'MockTestID' is a unique identifier for each NEET mock test instance.
 -- 'StudentID' refers to the ID of the student taking the test (from an external database).
@@ -124,13 +151,10 @@ CREATE TABLE IF NOT EXISTS NEETMockTests (
     MockTestID SERIAL PRIMARY KEY,
     StudentID INT NOT NULL
 );
-select * from NEETMockTests;
-DELETE FROM NEETMockTests;
-DROP TABLE IF EXISTS NEETMockTests CASCADE;
 
 
 
---4. NEETMockTestQuestions Table
+--6. NEETMockTestQuestions Table
 -- Creates a table for associating questions with NEET mock tests.
 -- 'MockTestID' refers to the mock test instance.
 -- 'QuestionID' refers to the specific question from the Questions table.
@@ -141,28 +165,21 @@ CREATE TABLE IF NOT EXISTS NEETMockTestQuestions (
     FOREIGN KEY (MockTestID) REFERENCES NEETMockTests(MockTestID),
     FOREIGN KEY (QuestionID) REFERENCES Questions(QuestionID)
 );
-select * from NEETMockTestQuestions;
-DELETE FROM NEETMockTestQuestions;
-DROP TABLE IF EXISTS NEETMockTestQuestions CASCADE;
 
 
---5. TestInstances Table
--- This table stores each unique instance of a test taken by a student.
+--7. TestInstances Table
+-- This table stores each unique instance of a test created for a student.
 CREATE TABLE IF NOT EXISTS TestInstances (
     TestInstanceID SERIAL PRIMARY KEY,    -- Unique identifier for each test instance.
     StudentID INT NOT NULL,               -- ID of the student taking the test.
     TestID INT NOT NULL,                  -- ID of the specific mock or practice test.
     TestType VARCHAR(50) NOT NULL,        -- Type of the test (e.g., 'Practice', 'Mock').
-    TestDateTime TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- Date and time when the test was taken.
+    TestDateTime TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- Date and time when the test was generated.
 );
-select * from TestInstances;
-DELETE FROM TestInstances;
-DROP TABLE IF EXISTS TestInstances CASCADE;
-
 
 ------------------------------------------------------------------------------------------------------------------------------
 
---6. StudentResponses Table
+--8. StudentResponses Table
 -- Creates a table for storing student responses to individual test questions.
 -- 'ResponseID' is a unique identifier for each response.
 -- 'TestInstanceID' links to the specific test instance from TestInstances table.
@@ -184,11 +201,7 @@ CREATE TABLE IF NOT EXISTS StudentResponses (
     FOREIGN KEY (QuestionID) REFERENCES Questions(QuestionID)
 );
 
-select * from StudentResponses;
-DELETE FROM StudentResponses;
-DROP TABLE IF EXISTS StudentResponses CASCADE;
-
---7. TestHistory Table
+--9. TestHistory Table
 -- Creates a table for storing the overall history of tests taken by students.
 -- 'HistoryID' is a unique identifier for each entry in the test history.
 -- 'TestInstanceID' links to the specific test instance from the TestInstances table.
@@ -204,13 +217,14 @@ CREATE TABLE IF NOT EXISTS TestHistory (
     CorrectAnswers INT,                         -- Number of correct answers.
     IncorrectAnswers INT,                       -- Number of incorrect answers.
     AverageAnsweringTimeInSeconds FLOAT,        -- Average time taken per question in seconds.
+    LastTestAttempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Date of last test attempt
     FOREIGN KEY (TestInstanceID) REFERENCES TestInstances(TestInstanceID)  -- Link to TestInstances table.
 );
-select * from TestHistory;
-DELETE FROM TestHistory;
-DROP TABLE IF EXISTS TestHistory CASCADE;
 
---8. ChapterProficiency Table
+ALTER TABLE TestHistory
+ADD UNIQUE (TestInstanceID, StudentID);
+
+--10. ChapterProficiency Table
 -- Creates a table for tracking student proficiency at the chapter level.
 -- 'StudentID' refers to the ID of the student (from an external database).
 -- 'ChapterID' links to the specific chapter from the Chapters table.
@@ -224,11 +238,7 @@ CREATE TABLE IF NOT EXISTS ChapterProficiency (
     PRIMARY KEY (StudentID, ChapterID)
 );
 
-select * from ChapterProficiency;
-DELETE FROM ChapterProficiency;
-DROP TABLE IF EXISTS ChapterProficiency CASCADE;
-
---9. SubtopicProficiency Table
+--11. SubtopicProficiency Table
 -- Creates a table for tracking student proficiency at the subtopic level.
 -- 'StudentID' refers to the ID of the student (from an external database).
 -- 'SubtopicID' links to the specific subtopic from the Subtopics table.
@@ -242,12 +252,8 @@ CREATE TABLE IF NOT EXISTS SubtopicProficiency (
     PRIMARY KEY (StudentID, SubtopicID)
 );
 
-select * from SubtopicProficiency;
-DELETE FROM SubtopicProficiency;
-DROP TABLE IF EXISTS SubtopicProficiency CASCADE;
 
-
---10. StudentTestTargets Table
+--12. StudentTestTargets Table
 -- Creates a table for storing students' target scores and their progress.
 -- 'StudentID' refers to the ID of the student (from an external database).
 -- 'TargetScore' is the score that the student aims to achieve.
@@ -262,12 +268,8 @@ CREATE TABLE IF NOT EXISTS StudentTestTargets (
     PRIMARY KEY (StudentID, SetDate),
     CHECK (TargetScore >= 0 AND TargetScore <= 720)
 );
-select * from StudentTestTargets;
-DELETE FROM StudentTestTargets;
-DROP TABLE IF EXISTS StudentTestTargets CASCADE;
 
-
---11. PracticeTestProficiency Table
+--13. PracticeTestProficiency Table
 -- Creates a table for tracking student proficiency specifically in practice tests.
 -- 'StudentID' refers to the ID of the student (referenced from an external database).
 -- Metrics include average correct/incorrect answers, average score, average answering time,
@@ -278,16 +280,12 @@ CREATE TABLE IF NOT EXISTS PracticeTestProficiency (
     AverageIncorrectAnswers NUMERIC, -- Average incorrect answers per practice test
     AverageScore NUMERIC, -- Average score per practice test
     AverageAnsweringTimeInSeconds NUMERIC, -- Average answering time per question in practice tests
-    LastResponseDate TIMESTAMP, -- Last date when the student took a practice test
     TotalTestsTaken INT, -- Total number of practice tests taken
+    LastResponseDate TIMESTAMP,
     PRIMARY KEY (StudentID)
 );
-select * from PracticeTestProficiency;
-DELETE FROM PracticeTestProficiency;
-DROP TABLE IF EXISTS PracticeTestProficiency CASCADE;
 
-
---12. MockTestProficiency Table
+--14. MockTestProficiency Table
 -- Creates a table for tracking student proficiency specifically in NEET mock tests.
 -- 'StudentID' refers to the ID of the student (referenced from an external database).
 -- Metrics include average correct/incorrect answers, average score, average answering time,
@@ -298,217 +296,8 @@ CREATE TABLE IF NOT EXISTS MockTestProficiency (
     AverageIncorrectAnswers NUMERIC, -- Average incorrect answers per mock test
     AverageScore NUMERIC, -- Average score per mock test
     AverageAnsweringTimeInSeconds NUMERIC, -- Average answering time per question in mock tests
-    LastResponseDate TIMESTAMP, -- Last date when the student took a mock test
     TotalTestsTaken INT, -- Total number of mock tests taken
+    LastResponseDate TIMESTAMP,
     PRIMARY KEY (StudentID)
 );
-
-select * from MockTestProficiency;
-DELETE FROM MockTestProficiency;
-DROP TABLE IF EXISTS MockTestProficiency CASCADE;
-
---------------------------------------------------------------------------------------------------------------------------------------------
-
-
-select * from PracticeTests;
-select * from PracticeTestQuestions where practicetestid =7;
-select * from NEETMockTests;
-select * from NEETMockTestQuestions;
-select * from TestInstances;
-
-
-select * from StudentResponses where testinstanceid =7 and studentid =1234;
-
-select * from TestHistory;
-select * from ChapterProficiency;
-select * from SubtopicProficiency;
-
-select * from StudentTestTargets;
-
-select * from PracticeTestProficiency;
-select * from MockTestProficiency;
-
-
-select * from PracticeTestQuestions where practicetestid =7;
-select * from StudentResponses where testinstanceid =7;
-
-DELETE FROM TestHistory WHERE studentid = 1234 AND testinstanceid = 7;
-
-
-select * from studentresponses s 
-JOIN practicetestquestions p on p.questionid = s.questionid
-where s.testinstanceid  =7 and p.practicetestid =7;
-
-SELECT *
-                FROM StudentResponses SR
-                JOIN PracticeTestQuestions PTQ ON SR.TestInstanceID = PTQ.PracticeTestID
-                JOIN Questions Q ON PTQ.QuestionID = Q.QuestionID
-                WHERE SR.StudentID = 1234 AND SR.TestInstanceID = 7 and PTQ.practicetestid =7;
-
-
-SELECT *
-FROM StudentResponses SR
-JOIN PracticeTestQuestions PTQ ON SR.QuestionID = PTQ.QuestionID AND SR.TestInstanceID = PTQ.PracticeTestID
-JOIN Questions Q ON PTQ.QuestionID = Q.QuestionID
-WHERE SR.StudentID = 1234 AND SR.TestInstanceID = 7;
-
-
-
----------------------------------------------------------------------------------------------------------------------------------------------------------
-
----update_test_proficiency_data Procedure---
-
-CREATE OR REPLACE FUNCTION update_test_proficiency_data(student_id INT, test_instance_id INT)
-RETURNS VOID AS $$
-DECLARE
-    test_type TEXT;
-    test_record RECORD;
-    total_weighted_correct_answers NUMERIC := 0;
-    total_weighted_incorrect_answers NUMERIC := 0;
-    total_weighted_score NUMERIC := 0;
-    total_weighted_time_seconds NUMERIC := 0;
-    total_weights NUMERIC := 0;
-    weight NUMERIC;
-    last_response TIMESTAMP;
-BEGIN
-    -- Determine the type of the test
-    SELECT TestType INTO test_type FROM TestInstances WHERE TestInstanceID = test_instance_id;
-
-    -- Get the last response date
-    SELECT MAX(ResponseDate) INTO last_response FROM StudentResponses WHERE StudentID = student_id;
-
-    -- Iterate over each test in reverse chronological order
-    FOR test_record IN
-        SELECT * FROM TestHistory
-        WHERE StudentID = student_id AND TestInstanceID IN 
-            (SELECT TestInstanceID FROM TestInstances WHERE TestType = test_type)
-        ORDER BY TestInstanceID DESC
-    LOOP
-        -- Assign weight based on order (newer tests have higher weight)
-        weight := row_number() OVER ();
-        total_weights := total_weights + weight;
-
-        -- Calculate weighted values
-        total_weighted_correct_answers := total_weighted_correct_answers + (test_record.CorrectAnswers * weight);
-        total_weighted_incorrect_answers := total_weighted_incorrect_answers + (test_record.IncorrectAnswers * weight);
-        total_weighted_score := total_weighted_score + (test_record.Score * weight);
-        total_weighted_time_seconds := total_weighted_time_seconds + (test_record.AverageAnsweringTimeInSeconds * test_record.QuestionsAttempted * weight);
-    END LOOP;
-
-    -- Calculate final weighted averages
-    IF total_weights > 0 THEN
-        -- Update or insert into the corresponding proficiency table
-        IF test_type = 'Mock' THEN
-            INSERT INTO MockTestProficiency (StudentID, AverageCorrectAnswers, AverageIncorrectAnswers, AverageScore, AverageAnsweringTimeInSeconds, LastResponseDate, TotalTestsTaken)
-            VALUES (student_id, total_weighted_correct_answers / total_weights, total_weighted_incorrect_answers / total_weights, total_weighted_score / total_weights, total_weighted_time_seconds / total_weights, last_response, total_weights)
-            ON CONFLICT (StudentID) DO
-            UPDATE SET 
-                AverageCorrectAnswers = EXCLUDED.AverageCorrectAnswers,
-                AverageIncorrectAnswers = EXCLUDED.AverageIncorrectAnswers,
-                AverageScore = EXCLUDED.AverageScore,
-                AverageAnsweringTimeInSeconds = EXCLUDED.AverageAnsweringTimeInSeconds,
-                LastResponseDate = EXCLUDED.LastResponseDate,
-                TotalTestsTaken = EXCLUDED.TotalTestsTaken;
-        ELSIF test_type = 'Practice' THEN
-            INSERT INTO PracticeTestProficiency (StudentID, AverageCorrectAnswers, AverageIncorrectAnswers, AverageScore, AverageAnsweringTimeInSeconds, LastResponseDate, TotalTestsTaken)
-            VALUES (student_id, total_weighted_correct_answers / total_weights, total_weighted_incorrect_answers / total_weights, total_weighted_score / total_weights, total_weighted_time_seconds / total_weights, last_response, total_weights)
-            ON CONFLICT (StudentID) DO
-            UPDATE SET 
-                AverageCorrectAnswers = EXCLUDED.AverageCorrectAnswers,
-                AverageIncorrectAnswers = EXCLUDED.AverageIncorrectAnswers,
-                AverageScore = EXCLUDED.AverageScore,
-                AverageAnsweringTimeInSeconds = EXCLUDED.AverageAnsweringTimeInSeconds,
-                LastResponseDate = EXCLUDED.LastResponseDate,
-                TotalTestsTaken = EXCLUDED.TotalTestsTaken;
-        END IF;
-    END IF;
-END;
-$$ LANGUAGE plpgsql;
-
----------------------------------------------------------------------------------------------------------------------------------------------------------
-
----update_student_performance_data Procedure---
-
-CREATE OR REPLACE FUNCTION update_student_performance_data()
-RETURNS TRIGGER AS $$
-DECLARE
-    question_record RECORD;
-    is_correct BOOLEAN;
-    total_correct_answers INT := 0;
-    total_incorrect_answers INT := 0;
-    total_time_seconds INT := 0;
-    question_count INT := 0;
-BEGIN
-    -- Iterate over each response for the given TestInstanceID
-    FOR question_record IN
-        SELECT sr.QuestionID, sr.StudentResponse, sr.AnsweringTimeInSeconds, q.Answer, q.ChapterID, q.SubtopicID
-        FROM StudentResponses sr
-        JOIN Questions q ON sr.QuestionID = q.QuestionID
-        WHERE sr.TestInstanceID = NEW.TestInstanceID
-    LOOP
-        -- Determine if the response is correct
-        is_correct := (question_record.StudentResponse IS NOT NULL AND question_record.StudentResponse = question_record.Answer);
-
-        -- Update counters
-        IF question_record.StudentResponse IS NOT NULL THEN
-            question_count := question_count + 1;
-            total_time_seconds := total_time_seconds + question_record.AnsweringTimeInSeconds;
-            IF is_correct THEN
-                total_correct_answers := total_correct_answers + 1;
-            ELSE
-                total_incorrect_answers := total_incorrect_answers + 1;
-            END IF;
-        END IF;
-
-        -- Update ChapterProficiency
-        IF EXISTS (SELECT 1 FROM ChapterProficiency WHERE StudentID = NEW.StudentID AND ChapterID = question_record.ChapterID) THEN
-            UPDATE ChapterProficiency
-            SET CorrectAnswers = CorrectAnswers + (CASE WHEN is_correct THEN 1 ELSE 0 END),
-                IncorrectAnswers = IncorrectAnswers + (CASE WHEN is_correct THEN 0 ELSE 1 END)
-            WHERE StudentID = NEW.StudentID AND ChapterID = question_record.ChapterID;
-        ELSE
-            INSERT INTO ChapterProficiency (StudentID, ChapterID, CorrectAnswers, IncorrectAnswers)
-            VALUES (NEW.StudentID, question_record.ChapterID, (CASE WHEN is_correct THEN 1 ELSE 0 END), (CASE WHEN is_correct THEN 0 ELSE 1 END));
-        END IF;
-
-        -- Update SubtopicProficiency
-        IF question_record.SubtopicID IS NOT NULL THEN
-            IF EXISTS (SELECT 1 FROM SubtopicProficiency WHERE StudentID = NEW.StudentID AND SubtopicID = question_record.SubtopicID) THEN
-                UPDATE SubtopicProficiency
-                SET CorrectAnswers = CorrectAnswers + (CASE WHEN is_correct THEN 1 ELSE 0 END),
-                    IncorrectAnswers = IncorrectAnswers + (CASE WHEN is_correct THEN 0 ELSE 1 END)
-                WHERE StudentID = NEW.StudentID AND SubtopicID = question_record.SubtopicID;
-            ELSE
-                INSERT INTO SubtopicProficiency (StudentID, SubtopicID, CorrectAnswers, IncorrectAnswers)
-                VALUES (NEW.StudentID, question_record.SubtopicID, (CASE WHEN is_correct THEN 1 ELSE 0 END), (CASE WHEN is_correct THEN 0 ELSE 1 END));
-            END IF;
-        END IF;
-    END LOOP;
-
-    -- Update TestHistory
-    IF question_count > 0 THEN
-        INSERT INTO TestHistory (TestInstanceID, StudentID, Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds)
-        VALUES (NEW.TestInstanceID, NEW.StudentID, (4 * total_correct_answers) - total_incorrect_answers, question_count, total_correct_answers, total_incorrect_answers, total_time_seconds::FLOAT / question_count);
-    END IF;
-   
-    -- Call the new procedure to update test proficiency data
-    PERFORM update_test_proficiency_data(NEW.StudentID, NEW.TestInstanceID);
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-
----TestHistory Trigger---
-CREATE TRIGGER trigger_update_student_performance
-AFTER INSERT ON StudentResponses
-FOR EACH ROW
-EXECUTE FUNCTION update_student_performance_data();
-
-
-
----------------------------------------------------------------------------------------------------------------------------------------------------------
-
-
-DROP TRIGGER trigger_update_student_performance ON StudentResponses;
 
