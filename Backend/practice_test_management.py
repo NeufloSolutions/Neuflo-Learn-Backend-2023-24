@@ -6,10 +6,14 @@ def fetch_chapters(cur, subject_id):
     cur.execute("SELECT ChapterID FROM Chapters WHERE SubjectID = %s", (subject_id,))
     return [chapter[0] for chapter in cur.fetchall()]
 
+import random
+
 def select_questions(cur, chapters, used_questions, total_questions, subject_id):
     selected_questions = []
+    
+    # Gather all available questions from the chapters
+    all_questions = []
     for chapter_id in chapters:
-        # Join with Chapters table to filter by SubjectID
         cur.execute("""
             SELECT q.QuestionID 
             FROM Questions q 
@@ -17,29 +21,17 @@ def select_questions(cur, chapters, used_questions, total_questions, subject_id)
             WHERE q.ChapterID = %s AND c.SubjectID = %s
         """, (chapter_id, subject_id))
         chapter_questions = [question[0] for question in cur.fetchall()]
-
-        # Filter out used questions
+        
+        # Exclude already used questions
         chapter_questions = [q for q in chapter_questions if q not in used_questions.get(chapter_id, [])]
+        all_questions.extend(chapter_questions)
 
-        if chapter_questions:
-            selected_question = random.choice(chapter_questions)
-            selected_questions.append(selected_question)
-            used_questions.setdefault(chapter_id, []).append(selected_question)
-
-        if len(selected_questions) >= total_questions:
-            break
-
-    # Additional questions if needed
-    if len(selected_questions) < total_questions:
-        cur.execute("""
-            SELECT q.QuestionID 
-            FROM Questions q 
-            INNER JOIN Chapters c ON q.ChapterID = c.ChapterID 
-            WHERE c.SubjectID = %s AND q.ChapterID NOT IN %s
-            LIMIT %s
-        """, (subject_id, tuple(chapters), total_questions - len(selected_questions)))
-        additional_questions = [question[0] for question in cur.fetchall()]
-        selected_questions.extend(additional_questions)
+    # Randomly select questions ensuring no repetition
+    while len(selected_questions) < total_questions and all_questions:
+        selected_question = random.choice(all_questions)
+        selected_questions.append(selected_question)
+        used_questions.setdefault(chapters[0], []).append(selected_question)  # Assign to the first chapter in used_questions
+        all_questions.remove(selected_question)
 
     random.shuffle(selected_questions)
     return selected_questions[:total_questions]
@@ -64,21 +56,8 @@ def generate_practice_test(student_id):
             used_questions = get_cached_questions(student_id)
 
             for subject_id, details in subjects.items():
-                if subject_id == 3:  # Biology
-                    total_questions = details["total_questions"]
-                    botany_questions = round(total_questions * 0.65)  # 65% Botany
-                    zoology_questions = total_questions - botany_questions  # Remaining for Zoology
-
-                    chapters_botany = fetch_chapters(cur, 3)  # Botany chapters
-                    chapters_zoology = fetch_chapters(cur, 4)  # Zoology chapters
-
-                    questions_botany = select_questions(cur, chapters_botany, used_questions, botany_questions, 3)
-                    questions_zoology = select_questions(cur, chapters_zoology, used_questions, zoology_questions, 4)
-
-                    questions = questions_botany + questions_zoology
-                else:
-                    chapters = fetch_chapters(cur, subject_id)
-                    questions = select_questions(cur, chapters, used_questions, details["total_questions"], subject_id)
+                chapters = fetch_chapters(cur, subject_id)
+                questions = select_questions(cur, chapters, used_questions, details["total_questions"], subject_id)
 
                 cur.execute("""
                     INSERT INTO PracticeTestSubjects (PracticeTestID, SubjectName)
