@@ -1,5 +1,5 @@
 import json
-from db_connection import redis_client
+from Backend.db_connection import redis_client
 
 def get_cached_questions(student_id):
     """
@@ -16,3 +16,9 @@ def cache_questions(student_id, used_questions):
     Cache questions used by a student in Redis.
     """
     redis_client.set(str(student_id), json.dumps(used_questions))
+
+def clear_student_cache(student_id):
+    """
+    Clear all cached data for a specific student in Redis.
+    """
+    redis_client.delete(str(student_id))

@@ -1,10 +1,10 @@
-from db_connection import create_pg_connection, release_pg_connection
+from Backend.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def get_student_test_history(student_id):
     """
     Retrieve the test history of a student.
     """
-    conn = create_pg_connection()
+    conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return None, "Database connection failed"
 
@@ -23,36 +23,36 @@ def get_student_test_history(student_id):
     except Exception as e:
         return None, str(e)
     finally:
-        release_pg_connection(conn)
+        release_pg_connection(pg_connection_pool, conn)
 
 def get_chapter_proficiency(student_id):
     """
     Retrieve the chapter proficiency for a student.
     """
-    conn = create_pg_connection()
+    conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return None, "Database connection failed"
 
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT C.ChapterID, C.ChapterName, COALESCE(CP.CorrectAnswers, 0) AS CorrectAnswers, 
-                       COALESCE(CP.IncorrectAnswers, 0) AS IncorrectAnswers
-                FROM Chapters C
-                LEFT JOIN ChapterProficiency CP ON C.ChapterID = CP.ChapterID AND CP.StudentID = %s
+            SELECT C.ChapterID, C.ChapterTitle, COALESCE(CP.CorrectAnswers, 0) AS CorrectAnswers, 
+                COALESCE(CP.IncorrectAnswers, 0) AS IncorrectAnswers
+            FROM Chapters C
+            LEFT JOIN ChapterProficiency CP ON C.ChapterID = CP.ChapterID AND CP.StudentID = %s
             """, (student_id,))
             proficiency = cur.fetchall()
             return proficiency, None
     except Exception as e:
         return None, str(e)
     finally:
-        release_pg_connection(conn)
+        release_pg_connection(pg_connection_pool, conn)
 
 def get_subtopic_proficiency(student_id):
     """
     Retrieve the subtopic proficiency for a student.
     """
-    conn = create_pg_connection()
+    conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return None, "Database connection failed"
 
@@ -69,4 +69,4 @@ def get_subtopic_proficiency(student_id):
     except Exception as e:
         return None, str(e)
     finally:
-        release_pg_connection(conn)
+        release_pg_connection(pg_connection_pool, conn)

@@ -1,10 +1,10 @@
-from db_connection import create_pg_connection, release_pg_connection
+from Backend.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def get_question_details(question_id):
     """
     Retrieve details for a specific question from the database.
     """
-    conn = create_pg_connection()
+    conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return None, "Database connection failed"
 
@@ -28,14 +28,14 @@ def get_question_details(question_id):
     except Exception as e:
         return None, str(e)
     finally:
-        release_pg_connection(conn)
+        release_pg_connection(pg_connection_pool, conn)
 
 
 def get_answer(question_id):
     """
     Retrieve the answer for a specific question from the database.
     """
-    conn = create_pg_connection()
+    conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return None, "Database connection failed"
 
@@ -56,4 +56,4 @@ def get_answer(question_id):
     except Exception as e:
         return None, str(e)
     finally:
-        release_pg_connection(conn)
+        release_pg_connection(pg_connection_pool, conn)

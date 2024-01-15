@@ -1,122 +1,182 @@
 import random
-from db_connection import create_pg_connection, release_pg_connection
-from cache_management import get_cached_questions, cache_questions
+from Backend.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
+from Backend.cache_management import get_cached_questions, cache_questions
+
+def fetch_chapters(cur, subject_id):
+    cur.execute("SELECT ChapterID FROM Chapters WHERE SubjectID = %s", (subject_id,))
+    return [chapter[0] for chapter in cur.fetchall()]
+
+def select_questions(cur, chapters, used_questions, total_questions, subject_id):
+    selected_questions = []
+    for chapter_id in chapters:
+        # Join with Chapters table to filter by SubjectID
+        cur.execute("""
+            SELECT q.QuestionID 
+            FROM Questions q 
+            INNER JOIN Chapters c ON q.ChapterID = c.ChapterID 
+            WHERE q.ChapterID = %s AND c.SubjectID = %s
+        """, (chapter_id, subject_id))
+        chapter_questions = [question[0] for question in cur.fetchall()]
+
+        # Filter out used questions
+        chapter_questions = [q for q in chapter_questions if q not in used_questions.get(chapter_id, [])]
+
+        if chapter_questions:
+            selected_question = random.choice(chapter_questions)
+            selected_questions.append(selected_question)
+            used_questions.setdefault(chapter_id, []).append(selected_question)
+
+        if len(selected_questions) >= total_questions:
+            break
+
+    # Additional questions if needed
+    if len(selected_questions) < total_questions:
+        cur.execute("""
+            SELECT q.QuestionID 
+            FROM Questions q 
+            INNER JOIN Chapters c ON q.ChapterID = c.ChapterID 
+            WHERE c.SubjectID = %s AND q.ChapterID NOT IN %s
+            LIMIT %s
+        """, (subject_id, tuple(chapters), total_questions - len(selected_questions)))
+        additional_questions = [question[0] for question in cur.fetchall()]
+        selected_questions.extend(additional_questions)
+
+    random.shuffle(selected_questions)
+    return selected_questions[:total_questions]
+
 
 def generate_practice_test(student_id):
-    conn = create_pg_connection()
+    conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return None, "Database connection failed"
 
     try:
         with conn.cursor() as cur:
-            # Fetch all chapters
-            cur.execute("SELECT ChapterID FROM Chapters")
-            chapters = [chapter[0] for chapter in cur.fetchall()]
-
-            # Fetch previously used questions for the student from cache
-            used_questions = get_cached_questions(student_id)
-
-            practice_test_questions = []
-            for chapter_id in chapters:
-                # Fetch questions for the chapter
-                cur.execute("""
-                    SELECT QuestionID, SubtopicID FROM Questions
-                    WHERE ChapterID = %s
-                """, (chapter_id,))
-                chapter_questions = cur.fetchall()
-
-                # Randomize order of questions
-                random.shuffle(chapter_questions)
-                selected_question = None
-                for question_id, subtopic_id in chapter_questions:
-                    if subtopic_id not in used_questions.get(chapter_id, {}) or question_id not in used_questions[chapter_id].get(subtopic_id, []):
-                        selected_question = question_id
-                        used_questions.setdefault(chapter_id, {}).setdefault(subtopic_id, []).append(question_id)
-                        break
-
-                if selected_question:
-                    practice_test_questions.append(selected_question)
-
-            if not practice_test_questions:
-                return None, "No questions available for the practice test"
-
-            # Insert the new practice test
             cur.execute("INSERT INTO PracticeTests (StudentID) VALUES (%s) RETURNING PracticeTestID", (student_id,))
             practice_test_id = cur.fetchone()[0]
 
-            # Link questions to the practice test
-            for qid in practice_test_questions:
-                cur.execute("INSERT INTO PracticeTestQuestions (PracticeTestID, QuestionID) VALUES (%s, %s)", (practice_test_id, qid))
+            subjects = {
+                1: {"name": "Physics", "total_questions": 30},
+                2: {"name": "Chemistry", "total_questions": 30},
+                3: {"name": "Biology", "total_questions": 30}
+            }
 
-            # Update the cache with newly used questions
+            used_questions = get_cached_questions(student_id)
+
+            for subject_id, details in subjects.items():
+                if subject_id == 3:  # Biology
+                    total_questions = details["total_questions"]
+                    botany_questions = round(total_questions * 0.65)  # 65% Botany
+                    zoology_questions = total_questions - botany_questions  # Remaining for Zoology
+
+                    chapters_botany = fetch_chapters(cur, 3)  # Botany chapters
+                    chapters_zoology = fetch_chapters(cur, 4)  # Zoology chapters
+
+                    questions_botany = select_questions(cur, chapters_botany, used_questions, botany_questions, 3)
+                    questions_zoology = select_questions(cur, chapters_zoology, used_questions, zoology_questions, 4)
+
+                    questions = questions_botany + questions_zoology
+                else:
+                    chapters = fetch_chapters(cur, subject_id)
+                    questions = select_questions(cur, chapters, used_questions, details["total_questions"], subject_id)
+
+                cur.execute("""
+                    INSERT INTO PracticeTestSubjects (PracticeTestID, SubjectName)
+                    VALUES (%s, %s) RETURNING PracticeTestSubjectID
+                """, (practice_test_id, details["name"]))
+                subject_test_id = cur.fetchone()[0]
+
+                for question_id in questions:
+                    cur.execute("""
+                        INSERT INTO PracticeTestQuestions (PracticeTestSubjectID, QuestionID)
+                        VALUES (%s, %s)
+                    """, (subject_test_id, question_id))
+
             cache_questions(student_id, used_questions)
 
+            cur.execute("""
+                INSERT INTO TestInstances (StudentID, TestID, TestType)
+                VALUES (%s, %s, 'Practice') RETURNING TestInstanceID
+            """, (student_id, practice_test_id))
+            test_instance_id = cur.fetchone()[0]
+
             conn.commit()
-            return practice_test_id, None
+            return {"practice_test_id": practice_test_id, "subject_tests": subjects}, None
     except Exception as e:
-        print("Entered Exception - Rollback")
         conn.rollback()
         return None, str(e)
     finally:
-        release_pg_connection(conn)
+        release_pg_connection(pg_connection_pool, conn)
 
-def get_practice_test_question_ids(practice_test_id):
-    conn = create_pg_connection()
+
+
+def get_practice_test_question_ids(practice_test_id, student_id):
+    conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return None, "Database connection failed"
 
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT Q.QuestionID
+                SELECT PTS.SubjectName, Q.QuestionID
                 FROM Questions Q
                 JOIN PracticeTestQuestions PTQ ON Q.QuestionID = PTQ.QuestionID
-                WHERE PTQ.PracticeTestID = %s
-            """, (practice_test_id,))
-            question_ids = [row[0] for row in cur.fetchall()]
-            return question_ids, None
+                JOIN PracticeTestSubjects PTS ON PTQ.PracticeTestSubjectID = PTS.PracticeTestSubjectID
+                JOIN PracticeTests PT ON PTS.PracticeTestID = PT.PracticeTestID
+                WHERE PT.PracticeTestID = %s AND PT.StudentID = %s
+            """, (practice_test_id, student_id))
+            subject_questions = {}
+            for subject_name, question_id in cur.fetchall():
+                if subject_name not in subject_questions:
+                    subject_questions[subject_name] = []
+                subject_questions[subject_name].append(question_id)
+            return subject_questions, None
     except Exception as e:
         return None, str(e)
     finally:
-        release_pg_connection(conn)
+        release_pg_connection(pg_connection_pool, conn)
 
-def submit_practice_test_answers(student_id, test_id, answers):
-    conn = create_pg_connection()
+def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
+    conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return "Database connection failed"
 
+    subject_mapping = {1: 'Physics',2: 'Chemistry', 3:'Biology'}
+    subject_id = subject_mapping.get(subject_ID)
+
+    if subject_id is None:
+        return None, "Invalid subject name"
+
     try:
         with conn.cursor() as cur:
-            test_instance_id = None  # Initialize test_instance_id
-
-            # Check if the specific TestInstance already exists
+            # Retrieve TestInstanceID for the current test
             cur.execute("""
                 SELECT TestInstanceID FROM TestInstances
-                WHERE TestID = %s AND StudentID = %s AND TestType = %s
-            """, (test_id, student_id, 'Practice'))
-            fetched = cur.fetchone()
+                WHERE TestID = %s AND StudentID = %s AND TestType = 'Practice'
+            """, (test_id, student_id))
+            test_instance_result = cur.fetchone()
+            if test_instance_result is None:
+                return None, "Test instance not found"
 
-            if fetched:
-                test_instance_id = fetched[0]
-            else:
-                # Insert a new TestInstance
-                cur.execute("""
-                    INSERT INTO TestInstances (StudentID, TestID, TestType)
-                    VALUES (%s, %s, %s)
-                    RETURNING TestInstanceID
-                """, (student_id, test_id, 'Practice'))
-                test_instance_id = cur.fetchone()[0]
+            test_instance_id = test_instance_result[0]
 
-            # Ensure test_instance_id is not None before proceeding
-            if test_instance_id is None:
-                raise Exception("Failed to retrieve or create TestInstanceID.")
+            # Retrieve PracticeTestSubjectID for the subject test
+            cur.execute("""
+                SELECT PracticeTestSubjectID FROM PracticeTestSubjects
+                WHERE PracticeTestID = %s AND SubjectName = %s
+            """, (test_id, subject_id))
+            subject_test_result = cur.fetchone()
+            if subject_test_result is None:
+                return None, "Subject test not found"
 
-            # Now record or update each student response
+            subject_test_id = subject_test_result[0]
+
+            # Record each student response
             for question_id, response in answers.items():
                 answering_time = response.get('time', 60)  # Default time to 60 if not provided
                 student_response = response.get('answer', '')
 
-                # UPSERT operation: Insert or update the student's response
+                # Insert or update the student's response using TestInstanceID
                 cur.execute("""
                     INSERT INTO StudentResponses (TestInstanceID, StudentID, QuestionID, StudentResponse, AnsweringTimeInSeconds)
                     VALUES (%s, %s, %s, %s, %s)
@@ -126,11 +186,38 @@ def submit_practice_test_answers(student_id, test_id, answers):
                         AnsweringTimeInSeconds = EXCLUDED.AnsweringTimeInSeconds,
                         ResponseDate = CURRENT_TIMESTAMP
                 """, (test_instance_id, student_id, question_id, student_response, answering_time))
+
+            # Mark subject test as completed
+            cur.execute("""
+                UPDATE PracticeTestSubjects
+                SET IsCompleted = TRUE
+                WHERE PracticeTestSubjectID = %s
+            """, (subject_test_id,))
+
+            # Check if all subject tests are completed
+            cur.execute("""
+                SELECT COUNT(*) FROM PracticeTestSubjects
+                WHERE PracticeTestID = %s AND IsCompleted = FALSE
+            """, (test_id,))
+            remaining_tests = cur.fetchone()[0]
+
+            if remaining_tests == 0:
+                # Mark full practice test as completed
+                cur.execute("""
+                    INSERT INTO PracticeTestCompletion (PracticeTestID, StudentID, IsCompleted, CompletionDate)
+                    VALUES (%s, %s, TRUE, CURRENT_TIMESTAMP)
+                    ON CONFLICT (PracticeTestID, StudentID)
+                    DO UPDATE SET 
+                        IsCompleted = TRUE,
+                        CompletionDate = CURRENT_TIMESTAMP
+                """, (test_id, student_id))
+
             conn.commit()
             return {"message": "Submission successful"}
     except Exception as e:
-        print("Entered Exception - Rollback")
         conn.rollback()
         return None, str(e)
     finally:
-        release_pg_connection(conn)
+        release_pg_connection(pg_connection_pool, conn)
+
+
