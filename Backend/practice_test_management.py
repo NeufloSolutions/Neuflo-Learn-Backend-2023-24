@@ -73,6 +73,7 @@ def generate_practice_test(student_id):
 
             cache_questions(student_id, used_questions)
 
+            # Insert into TestInstances and return TestInstanceID
             cur.execute("""
                 INSERT INTO TestInstances (StudentID, TestID, TestType)
                 VALUES (%s, %s, 'Practice') RETURNING TestInstanceID
@@ -80,7 +81,8 @@ def generate_practice_test(student_id):
             test_instance_id = cur.fetchone()[0]
 
             conn.commit()
-            return {"practice_test_id": practice_test_id, "subject_tests": subjects}, None
+            # Return the testInstanceID and subject_tests
+            return {"testInstanceID": test_instance_id, "subject_tests": subjects}, None
     except Exception as e:
         conn.rollback()
         return None, str(e)
@@ -120,7 +122,7 @@ def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
     if not conn:
         return "Database connection failed"
 
-    subject_mapping = {1: 'Physics',2: 'Chemistry', 3:'Biology'}
+    subject_mapping = {1: 'Physics', 2: 'Chemistry', 3: 'Biology'}
     subject_id = subject_mapping.get(subject_ID)
 
     if subject_id is None:
@@ -128,34 +130,33 @@ def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
 
     try:
         with conn.cursor() as cur:
-            # Retrieve TestInstanceID for the current test
+            # Retrieve PracticeTestID related to TestInstanceID
             cur.execute("""
-                SELECT TestInstanceID FROM TestInstances
-                WHERE TestID = %s AND StudentID = %s AND TestType = 'Practice'
-            """, (test_id, student_id))
-            test_instance_result = cur.fetchone()
-            if test_instance_result is None:
-                return None, "Test instance not found"
+                SELECT PracticeTestID FROM TestInstances
+                WHERE TestInstanceID = %s
+            """, (test_id,))
+            practice_test_result = cur.fetchone()
+            if practice_test_result is None:
+                return None, "Practice test not found"
 
-            test_instance_id = test_instance_result[0]
+            practice_test_id = practice_test_result[0]
 
             # Retrieve PracticeTestSubjectID for the subject test
             cur.execute("""
                 SELECT PracticeTestSubjectID FROM PracticeTestSubjects
                 WHERE PracticeTestID = %s AND SubjectName = %s
-            """, (test_id, subject_id))
+            """, (practice_test_id, subject_id))
             subject_test_result = cur.fetchone()
             if subject_test_result is None:
                 return None, "Subject test not found"
 
             subject_test_id = subject_test_result[0]
 
-            # Record each student response
+            # Record each student response using TestInstanceID (test_id)
             for question_id, response in answers.items():
-                answering_time = response.get('time', 60)  # Default time to 60 if not provided
+                answering_time = response.get('time', 60)
                 student_response = response.get('answer', '')
 
-                # Insert or update the student's response using TestInstanceID
                 cur.execute("""
                     INSERT INTO StudentResponses (TestInstanceID, StudentID, QuestionID, StudentResponse, AnsweringTimeInSeconds)
                     VALUES (%s, %s, %s, %s, %s)
@@ -164,7 +165,7 @@ def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
                         StudentResponse = EXCLUDED.StudentResponse,
                         AnsweringTimeInSeconds = EXCLUDED.AnsweringTimeInSeconds,
                         ResponseDate = CURRENT_TIMESTAMP
-                """, (test_instance_id, student_id, question_id, student_response, answering_time))
+                """, (test_id, student_id, question_id, student_response, answering_time))
 
             # Mark subject test as completed
             cur.execute("""
@@ -176,10 +177,9 @@ def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
             # Check if all subject tests are completed
             cur.execute("""
                 SELECT COUNT(*) FROM PracticeTestSubjects
-                WHERE PracticeTestID = %s AND IsCompleted = FALSE
-            """, (test_id,))
+                WHERE PracticeTestID= %s AND IsCompleted = FALSE
+                        """, (practice_test_id,))
             remaining_tests = cur.fetchone()[0]
-
             if remaining_tests == 0:
                 # Mark full practice test as completed
                 cur.execute("""
@@ -189,7 +189,7 @@ def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
                     DO UPDATE SET 
                         IsCompleted = TRUE,
                         CompletionDate = CURRENT_TIMESTAMP
-                """, (test_id, student_id))
+                """, (practice_test_id, student_id))
 
             conn.commit()
             return {"message": "Submission successful"}
@@ -198,5 +198,3 @@ def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
         return None, str(e)
     finally:
         release_pg_connection(pg_connection_pool, conn)
-
-
