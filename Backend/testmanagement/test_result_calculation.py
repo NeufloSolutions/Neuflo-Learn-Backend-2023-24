@@ -1,4 +1,4 @@
-from Backend.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
+from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def calculate_test_results(student_id, test_instance_id):
     conn = create_pg_connection(pg_connection_pool)
