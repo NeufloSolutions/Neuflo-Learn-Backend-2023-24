@@ -1,4 +1,4 @@
-from Backend.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
+from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def get_question_details(question_id):
     """

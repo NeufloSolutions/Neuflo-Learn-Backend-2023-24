@@ -1,6 +1,6 @@
 import random
-from Backend.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
-from Backend.cache_management import get_cached_questions, cache_questions
+from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
+from Backend.dbconfig.cache_management import get_cached_questions, cache_questions
 
 def fetch_chapters(cur, subject_id):
     cur.execute("SELECT ChapterID FROM Chapters WHERE SubjectID = %s", (subject_id,))

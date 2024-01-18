@@ -2,7 +2,7 @@
 import psycopg2
 from psycopg2 import pool
 import redis
-from Backend.config import DB_CONFIG
+from Backend.dbconfig.config import DB_CONFIG
 
 # Initialize the connection pool for PostgreSQL
 def init_pg_connection_pool():
