@@ -1,13 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from typing import List, Dict, Union
 from pydantic import BaseModel
-from Backend.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
+from Backend..db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 from Backend.cache_management import get_cached_questions, cache_questions, clear_student_cache  
-from Backend.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
+from Backend.PracticeTest.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
 from Backend.question_management import get_question_details, get_answer
 from Backend.test_result_calculation import calculate_test_results
 from Backend.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency
-from Backend.answer_retrieval import get_practice_test_answers_only
+from Backend import get_practice_test_answers_only
 
 
 app = FastAPI()
