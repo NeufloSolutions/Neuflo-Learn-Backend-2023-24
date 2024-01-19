@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from typing import List, Dict, Union
 from pydantic import BaseModel
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
@@ -8,7 +8,7 @@ from Backend.testmanagement.question_management import get_question_details, get
 from Backend.testmanagement.test_result_calculation import calculate_test_results
 from Backend.testmanagement.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency
 from Backend.practice.answer_retrieval import get_practice_test_answers_only
-
+from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance
 
 app = FastAPI()
 
@@ -82,6 +82,34 @@ async def get_test_results(student_id: int, test_instance_id: int):
     finally:
         # Release the connection back to the pool
         release_pg_connection(pg_connection_pool, conn)
+
+######################################################################################################
+
+@app.post("/generate-mock-test/{student_id}", response_model=dict)
+async def generate_mock_test_endpoint(student_id: int):
+    """
+    Endpoint to generate a mock test for a given student.
+    """
+    try:
+        result = generate_mock_test(student_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class QuestionModel(BaseModel):
+    questions: Dict[str, Dict[str, List[int]]]
+
+@app.get("/get-mock-questions/{testID}", response_model=QuestionModel)
+async def get_mock_questions_endpoint(testID: int, student_id: int = Query(...)):
+    try:
+        questions = get_questions_for_mock_test_instance(testID, student_id)
+        return {"questions": questions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+######################################################################################################
 
 @app.get("/student-test-history/{student_id}")
 def api_get_student_test_history(student_id: int):
