@@ -1,4 +1,4 @@
-
+--1. Subjects Table
 -- This table stores information about the various subjects in the NEET syllabus.
 -- Each subject has a unique SubjectID and a name (SubjectName).
 CREATE TABLE IF NOT EXISTS Subjects (
@@ -93,7 +93,6 @@ CREATE TABLE IF NOT EXISTS PracticeTests (
     StudentID INT NOT NULL
 );
 
-
 --2. PracticeTestSubjects Table
 --
 --This table is designed to track each subject test within a practice test. It provides a link between the overall practice test and its individual subject components.
@@ -109,7 +108,6 @@ CREATE TABLE IF NOT EXISTS PracticeTestSubjects (
     IsCompleted BOOLEAN DEFAULT FALSE,
     FOREIGN KEY (PracticeTestID) REFERENCES PracticeTests(PracticeTestID)
 );
-
 
 --3. PracticeTestQuestions Table
 --This table associates questions with each subject test within a practice test, ensuring that the appropriate questions are included for each subject area.
@@ -142,7 +140,6 @@ CREATE TABLE IF NOT EXISTS PracticeTestCompletion (
     FOREIGN KEY (PracticeTestID) REFERENCES PracticeTests(PracticeTestID)
 );
 
-
 -- 5. NEETMockTests Table 
 -- Creates a table for storing NEET mock test instances for each student.
 -- 'MockTestID' is a unique identifier for each NEET mock test instance.
@@ -151,8 +148,6 @@ CREATE TABLE IF NOT EXISTS NEETMockTests (
     MockTestID SERIAL PRIMARY KEY,
     StudentID INT NOT NULL
 );
-
-
 
 --6. NEETMockTestQuestions Table
 -- Creates a table for associating questions with NEET mock tests.
@@ -166,6 +161,84 @@ CREATE TABLE IF NOT EXISTS NEETMockTestQuestions (
     FOREIGN KEY (QuestionID) REFERENCES Questions(QuestionID)
 );
 
+ALTER TABLE NEETMockTestQuestions
+ADD COLUMN Section VARCHAR(10);
+
+-- 7. MockTestChapterWeightage Table
+-- This table stores the weightage for each chapter in the NEET Mock Test.
+-- The weightage helps in determining the probability of selecting questions from a specific chapter.
+CREATE TABLE IF NOT EXISTS MockTestChapterWeightage (
+    MockTestWeightageID SERIAL PRIMARY KEY, -- Unique identifier for each weightage entry.
+    ChapterID INT NOT NULL,                 -- ID of the chapter.
+    SubjectID INT NOT NULL,                 -- ID of the subject to which the chapter belongs.
+    Weightage NUMERIC NOT NULL,             -- Weightage of the chapter in question selection.
+    FOREIGN KEY (ChapterID) REFERENCES Chapters(ChapterID),
+    FOREIGN KEY (SubjectID) REFERENCES Subjects(SubjectID)
+);
+
+ALTER TABLE MockTestChapterWeightage
+ADD CONSTRAINT unique_chapter_subject UNIQUE (ChapterID, SubjectID);
+
+-- Query to update weights in the MockTestChapterWeightage table
+DO $$
+DECLARE
+    rec record;
+BEGIN
+    -- Iterating through each chapter and its corresponding subject
+    FOR rec IN SELECT c.ChapterID, c.SubjectID, 
+                      COUNT(q.QuestionID) AS TotalQuestionsPerChapter,
+                      (SELECT COUNT(QuestionID) FROM Questions WHERE ChapterID IN 
+                          (SELECT ChapterID FROM Chapters WHERE SubjectID = c.SubjectID)
+                      ) AS TotalQuestionsPerSubject
+               FROM Chapters c
+               JOIN Questions q ON c.ChapterID = q.ChapterID
+               GROUP BY c.ChapterID, c.SubjectID
+    LOOP
+        -- Calculating and updating weightage for each chapter
+        IF rec.TotalQuestionsPerSubject > 0 THEN
+            INSERT INTO MockTestChapterWeightage (ChapterID, SubjectID, Weightage)
+            VALUES (rec.ChapterID, rec.SubjectID, (rec.TotalQuestionsPerChapter::NUMERIC / rec.TotalQuestionsPerSubject) * 100)
+            ON CONFLICT (ChapterID, SubjectID) DO UPDATE
+            SET Weightage = EXCLUDED.Weightage;
+        END IF;
+    END LOOP;
+END $$;
+
+select * from MockTestChapterWeightage;
+
+SELECT SubjectID, SUM(Weightage) AS TotalWeightage
+FROM MockTestChapterWeightage
+GROUP BY SubjectID;
+
+-- 8. MockTestConfiguration Table
+-- This table defines the structure of the mock test for each subject.
+-- It includes the number of questions in Section A and Section B.
+CREATE TABLE IF NOT EXISTS MockTestConfiguration (
+    ConfigID SERIAL PRIMARY KEY,       -- Unique identifier for each configuration.
+    SubjectID INT NOT NULL,            -- ID of the subject.
+    SectionAQuestions INT NOT NULL,    -- Number of questions in Section A.
+    SectionBQuestions INT NOT NULL,    -- Number of questions in Section B.
+    FOREIGN KEY (SubjectID) REFERENCES Subjects(SubjectID)
+);
+
+-- Pre-populating MockTestConfiguration with fixed values for each subject.
+-- Assuming Subject IDs for Physics, Chemistry, Botany, and Zoology are 1, 2, 3, and 4 respectively.
+INSERT INTO MockTestConfiguration (SubjectID, SectionAQuestions, SectionBQuestions)
+VALUES
+(1, 35, 15), -- Physics
+(2, 35, 15), -- Chemistry
+(3, 35, 15), -- Botany
+(4, 35, 15); -- Zoology
+
+-- 9. StudentMockTestHistory Table
+-- This table stores the history of questions given to a student in mock tests.
+-- It helps to ensure that questions are not repeated in subsequent tests for the same student.
+CREATE TABLE IF NOT EXISTS StudentMockTestHistory (
+    HistoryID SERIAL PRIMARY KEY,    -- Unique identifier for each history record.
+    StudentID INT NOT NULL,          -- ID of the student.
+    QuestionID INT NOT NULL,         -- ID of the question given to the student.
+    FOREIGN KEY (QuestionID) REFERENCES Questions(QuestionID)
+);
 
 --7. TestInstances Table
 -- This table stores each unique instance of a test created for a student.
@@ -179,7 +252,7 @@ CREATE TABLE IF NOT EXISTS TestInstances (
 
 ------------------------------------------------------------------------------------------------------------------------------
 
---8. StudentResponses Table
+--1. StudentResponses Table
 -- Creates a table for storing student responses to individual test questions.
 -- 'ResponseID' is a unique identifier for each response.
 -- 'TestInstanceID' links to the specific test instance from TestInstances table.
@@ -201,7 +274,7 @@ CREATE TABLE IF NOT EXISTS StudentResponses (
     FOREIGN KEY (QuestionID) REFERENCES Questions(QuestionID)
 );
 
---9. TestHistory Table
+--2. TestHistory Table
 -- Creates a table for storing the overall history of tests taken by students.
 -- 'HistoryID' is a unique identifier for each entry in the test history.
 -- 'TestInstanceID' links to the specific test instance from the TestInstances table.
@@ -224,7 +297,7 @@ CREATE TABLE IF NOT EXISTS TestHistory (
 ALTER TABLE TestHistory
 ADD UNIQUE (TestInstanceID, StudentID);
 
---10. ChapterProficiency Table
+--3. ChapterProficiency Table
 -- Creates a table for tracking student proficiency at the chapter level.
 -- 'StudentID' refers to the ID of the student (from an external database).
 -- 'ChapterID' links to the specific chapter from the Chapters table.
@@ -238,7 +311,7 @@ CREATE TABLE IF NOT EXISTS ChapterProficiency (
     PRIMARY KEY (StudentID, ChapterID)
 );
 
---11. SubtopicProficiency Table
+--4. SubtopicProficiency Table
 -- Creates a table for tracking student proficiency at the subtopic level.
 -- 'StudentID' refers to the ID of the student (from an external database).
 -- 'SubtopicID' links to the specific subtopic from the Subtopics table.
@@ -253,7 +326,7 @@ CREATE TABLE IF NOT EXISTS SubtopicProficiency (
 );
 
 
---12. StudentTestTargets Table
+--5. StudentTestTargets Table
 -- Creates a table for storing students' target scores and their progress.
 -- 'StudentID' refers to the ID of the student (from an external database).
 -- 'TargetScore' is the score that the student aims to achieve.
@@ -269,7 +342,7 @@ CREATE TABLE IF NOT EXISTS StudentTestTargets (
     CHECK (TargetScore >= 0 AND TargetScore <= 720)
 );
 
---13. PracticeTestProficiency Table
+--6. PracticeTestProficiency Table
 -- Creates a table for tracking student proficiency specifically in practice tests.
 -- 'StudentID' refers to the ID of the student (referenced from an external database).
 -- Metrics include average correct/incorrect answers, average score, average answering time,
@@ -285,7 +358,7 @@ CREATE TABLE IF NOT EXISTS PracticeTestProficiency (
     PRIMARY KEY (StudentID)
 );
 
---14. MockTestProficiency Table
+--7. MockTestProficiency Table
 -- Creates a table for tracking student proficiency specifically in NEET mock tests.
 -- 'StudentID' refers to the ID of the student (referenced from an external database).
 -- Metrics include average correct/incorrect answers, average score, average answering time,
@@ -300,4 +373,33 @@ CREATE TABLE IF NOT EXISTS MockTestProficiency (
     LastResponseDate TIMESTAMP,
     PRIMARY KEY (StudentID)
 );
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+
+
+select * from PracticeTests;
+select * from PracticeTestSubjects;
+select * from PracticeTestCompletion;
+select * from PracticeTestQuestions; 
+
+
+select * from NEETMockTests;
+select * from NEETMockTestQuestions;
+
+
+select * from TestInstances;
+
+
+select * from StudentResponses;
+
+select * from TestHistory;
+select * from ChapterProficiency;
+select * from SubtopicProficiency;
+
+select * from StudentTestTargets;
+
+select * from PracticeTestProficiency;
+select * from MockTestProficiency;
+
+
 
