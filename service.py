@@ -8,7 +8,7 @@ from Backend.testmanagement.question_management import get_question_details, get
 from Backend.testmanagement.test_result_calculation import calculate_test_results
 from Backend.testmanagement.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency
 from Backend.practice.answer_retrieval import get_practice_test_answers_only
-from Backend.mock.mock_test_generation import generate_mock_test, get_questions_for_mock_test_instance
+from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance
 
 app = FastAPI()
 
