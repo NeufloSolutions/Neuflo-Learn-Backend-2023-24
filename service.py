@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from typing import List, Dict, Union
 from pydantic import BaseModel
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
@@ -97,14 +97,14 @@ async def generate_mock_test_endpoint(student_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/mock-test/{mock_test_id}/questions", response_model=List[int])
-async def get_mock_test_questions(mock_test_id: int):
-    """
-    Endpoint to retrieve all question IDs for a given mock test instance.
-    """
+class QuestionModel(BaseModel):
+    questions: Dict[str, Dict[str, List[int]]]
+
+@app.get("/get-mock-questions/{testID}", response_model=QuestionModel)
+async def get_mock_questions_endpoint(testID: int, student_id: int = Query(...)):
     try:
-        question_ids = get_questions_for_mock_test_instance(mock_test_id)
-        return question_ids
+        questions = get_questions_for_mock_test_instance(testID, student_id)
+        return {"questions": questions}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

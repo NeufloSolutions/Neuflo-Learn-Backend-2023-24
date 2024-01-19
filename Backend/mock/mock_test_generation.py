@@ -16,10 +16,11 @@ def generate_mock_test(student_id):
     mock_test_questions = []
 
     # Select questions for each subject and section
+    mock_test_questions = []
     for subject_id in subject_ids:
-        for section in ['A', 'B']:
-            questions = select_questions_for_subject(subject_id, student_id, section)
-            mock_test_questions.extend(questions)
+        questions_a = select_questions_for_subject(subject_id, student_id, 'A')
+        questions_b = select_questions_for_subject(subject_id, student_id, 'B')
+        mock_test_questions.extend(questions_a + questions_b)
 
     print(f"Total questions selected for the mock test: {len(mock_test_questions)}")
 
@@ -30,62 +31,112 @@ def generate_mock_test(student_id):
     else:
         return {"message": "Error in generating mock test", "testInstanceID": None}
 
-def get_chapter_id_for_question(question_id):
+def get_chapter_ids_for_questions(question_ids):
     """
-    Retrieves the chapter ID for a given question ID.
+    Retrieves the chapter IDs for a given list of question IDs.
     
-    :param question_id: ID of the question.
-    :return: ID of the chapter.
+    :param question_ids: List of question IDs.
+    :return: Dictionary of question IDs to their corresponding chapter IDs.
     """
+    if not question_ids:
+        return {}
+
+    question_chapter_mapping = {}
     connection = create_pg_connection(pg_connection_pool)
     cursor = connection.cursor()
     try:
-        cursor.execute("SELECT ChapterID FROM Questions WHERE QuestionID = %s", (question_id,))
-        result = cursor.fetchone()
-        return result[0] if result else None
+        format_strings = ','.join(['%s'] * len(question_ids))
+        cursor.execute(f"SELECT QuestionID, ChapterID FROM Questions WHERE QuestionID IN ({format_strings})", tuple(question_ids))
+        for question_id, chapter_id in cursor.fetchall():
+            question_chapter_mapping[question_id] = chapter_id
     except Exception as e:
-        print(f"Error fetching chapter ID for question {question_id}: {e}")
-        return None
+        print(f"Error fetching chapter IDs: {e}")
     finally:
         release_pg_connection(pg_connection_pool, connection)
+    return question_chapter_mapping
+
+
+import random
 
 def select_questions_for_subject(subject_id, student_id, section):
     """
-    Selects questions for a given subject and section, considering the student's history
+    Optimized selection of questions for a given subject, considering the student's history
     and chapter weightage.
     
     :param subject_id: ID of the subject.
     :param student_id: ID of the student.
     :param section: Section of the test ('A' or 'B').
-    :return: List of selected question IDs.
+    :return: List of selected question IDs with their section.
     """
-
-    # Define the number of questions to select for each section
-    num_questions = 35 if section == 'A' else 15  # 35 for Section A, 15 for Section B
-
-    # Retrieve the student's history of attempted questions
     used_questions = set(get_cached_questions(student_id))
-    print(f"Used questions for student {student_id}: {used_questions}")
-    
-
-    # Fetch chapters and their weightages for the subject
     chapters_weightage = get_chapter_weightage(subject_id)
-    print(chapters_weightage)
-
-    # Fetch all questions for the subject, excluding ones the student has already attempted
     all_questions = get_questions_for_subject(subject_id, used_questions)
 
-    # Select questions based on chapter weightage
-    selected_questions = weighted_question_selection(all_questions, chapters_weightage, num_questions)
-    print(selected_questions)
+    # Define the number of questions required for each section
+    total_questions_required = 35 if section == 'A' else 15
+    selected_questions = list(set(weighted_question_selection(all_questions, chapters_weightage, total_questions_required)))
+
+    # If not enough unique questions, get more from higher weightage chapters
+    while len(selected_questions) < total_questions_required:
+        additional_questions_needed = total_questions_required - len(selected_questions)
+        more_questions = get_additional_questions(subject_id, selected_questions, chapters_weightage, additional_questions_needed)
+        selected_questions.extend(more_questions)
+        selected_questions = list(set(selected_questions))  # Remove any new duplicates
 
     # Update the cache with the newly selected questions
-    updated_used_questions = used_questions | set(selected_questions)
-    cache_questions(student_id, list(updated_used_questions))  # Converting back to list
-    
-    print(f"Selected questions for subject {subject_id}, section {section}: {selected_questions}")
+    cache_questions(student_id, list(used_questions | set(selected_questions)))
 
-    return selected_questions
+    # Assign section label and return
+    return [(qid, section) for qid in selected_questions[:total_questions_required]]
+
+def get_additional_questions(subject_id, excluded_questions, chapters_weightage, num_required):
+    """
+    Fetches additional questions from higher weightage chapters.
+    
+    :param subject_id: ID of the subject.
+    :param excluded_questions: Set of question IDs already used or selected.
+    :param chapters_weightage: Dictionary of chapter ID to weightage.
+    :param num_required: Number of additional questions needed.
+    :return: List of additional question IDs.
+    """
+    connection = create_pg_connection(pg_connection_pool)
+    cursor = connection.cursor()
+    additional_questions = []
+
+    # Ensure excluded_questions is a set
+    excluded_questions = set(excluded_questions)
+
+    try:
+        # Sort chapters by weightage, descending
+        sorted_chapters = sorted(chapters_weightage, key=chapters_weightage.get, reverse=True)
+
+        for chapter_id in sorted_chapters:
+            if len(additional_questions) >= num_required:
+                break
+
+            query = """
+            SELECT QuestionID FROM Questions
+            WHERE ChapterID = %s AND QuestionID NOT IN %s
+            ORDER BY RANDOM() 
+            LIMIT %s
+            """
+            remaining_needed = num_required - len(additional_questions)
+            excluded_questions_tuple = tuple(excluded_questions) if excluded_questions else (-1,)
+
+            cursor.execute(query, (chapter_id, excluded_questions_tuple, remaining_needed))
+            results = cursor.fetchall()
+
+            for row in results:
+                question_id = row[0]
+                additional_questions.append(question_id)
+                excluded_questions.add(question_id)  # Update the excluded questions set
+
+    except Exception as e:
+        print(f"Error fetching additional questions: {e}")
+    finally:
+        release_pg_connection(pg_connection_pool, connection)
+
+    return additional_questions
 
 
 def create_test_instance(student_id, question_ids_with_sections):
@@ -102,18 +153,28 @@ def create_test_instance(student_id, question_ids_with_sections):
     try:
         # Insert a new mock test instance and get its MockTestID
         cursor.execute("INSERT INTO NEETMockTests (StudentID) VALUES (%s) RETURNING MockTestID", (student_id,))
-        mock_test_id = cursor.fetchone()[0]
+        result = cursor.fetchone()
+        if not result:
+            raise Exception("Failed to create mock test instance.")
+        mock_test_id = result[0]
 
-        # Prepare data for bulk insert
+        # Validate and prepare data for bulk insert
+        if not all(isinstance(q, tuple) and len(q) == 2 for q in question_ids_with_sections):
+            raise ValueError("Invalid format in question_ids_with_sections. Expected list of tuples (QuestionID, Section).")
+        # Convert list of tuples into the correct format for bulk insert
         questions_data = [(mock_test_id, qid, sec) for qid, sec in question_ids_with_sections]
-        
+
+
         # Bulk insert selected questions into NEETMockTestQuestions with section info
         insert_query = "INSERT INTO NEETMockTestQuestions (MockTestID, QuestionID, Section) VALUES %s"
         psycopg2.extras.execute_values(cursor, insert_query, questions_data)
 
         # Record the test instance and get its TestInstanceID
         cursor.execute("INSERT INTO TestInstances (StudentID, TestID, TestType) VALUES (%s, %s, 'Mock') RETURNING TestInstanceID", (student_id, mock_test_id))
-        test_instance_id = cursor.fetchone()[0]
+        test_instance_id_result = cursor.fetchone()
+        if not test_instance_id_result:
+            raise Exception("Failed to create test instance.")
+        test_instance_id = test_instance_id_result[0]
 
         # Commit the transaction
         connection.commit()
@@ -127,12 +188,13 @@ def create_test_instance(student_id, question_ids_with_sections):
     finally:
         release_pg_connection(pg_connection_pool, connection)
 
+
 def get_chapter_weightage(subject_id):
     """
-    Retrieves the weightage for chapters in a subject.
+    Retrieves and rounds the weightage for chapters in a subject.
     
     :param subject_id: ID of the subject.
-    :return: Dictionary of chapter ID to weightage.
+    :return: Dictionary of chapter ID to rounded weightage.
     """
     connection = create_pg_connection(pg_connection_pool)
     cursor = connection.cursor()
@@ -141,13 +203,16 @@ def get_chapter_weightage(subject_id):
     try:
         cursor.execute("SELECT ChapterID, Weightage FROM MockTestChapterWeightage WHERE SubjectID = %s", (subject_id,))
         for chapter_id, weightage in cursor.fetchall():
-            weightages[chapter_id] = weightage
+            # Round weightage to 4 decimal places
+            rounded_weightage = round(weightage, 4)
+            weightages[chapter_id] = rounded_weightage
     except Exception as e:
         print(f"Error fetching chapter weightages: {e}")
     finally:
         release_pg_connection(pg_connection_pool,connection)
 
     return weightages
+
 
 def get_questions_for_mock_test_instance(mock_test_id):
     """
@@ -183,11 +248,9 @@ def get_questions_for_mock_test_instance(mock_test_id):
     return questions_dict
 
 
-import numpy as np
-
 def weighted_question_selection(question_ids, weightage, num_questions):
     """
-    Selects questions based on chapter weightage.
+    Optimized selection of questions based on chapter weightage.
     
     :param question_ids: List of question IDs.
     :param weightage: Dictionary of chapter ID to weightage.
@@ -197,26 +260,26 @@ def weighted_question_selection(question_ids, weightage, num_questions):
     if not question_ids:
         return []
 
-    # Create a list of chapter IDs for each question
-    chapter_ids_for_questions = [get_chapter_id_for_question(qid) for qid in question_ids]
+    # Batch fetch chapter IDs for questions
+    chapter_ids_for_questions = get_chapter_ids_for_questions(question_ids)
 
-    # Convert weightage to a list of weights corresponding to each question
-    weights = [weightage.get(ch_id, 0) for ch_id in chapter_ids_for_questions]
+    # Normalize weights and prepare for selection
+    total_weight = sum(weightage.values())
+    normalized_weights = {k: (v / total_weight) for k, v in weightage.items()}
 
-    # Normalize the weights to sum to 1
-    total_weight = sum(weights)
-    if total_weight > 0:
-        normalized_weights = [w / total_weight for w in weights]
+    # Prepare for weighted selection
+    weighted_selection_pool = []
+    for question_id in question_ids:
+        chapter_id = chapter_ids_for_questions.get(question_id)
+        if chapter_id and chapter_id in normalized_weights:
+            weight = normalized_weights[chapter_id]
+            weighted_selection_pool.extend([question_id] * int(weight * 100))
+
+    # Perform selection
+    if weighted_selection_pool:
+        return random.sample(weighted_selection_pool, min(len(weighted_selection_pool), num_questions))
     else:
-        # If total weight is 0 (to avoid division by zero), use equal weights
-        normalized_weights = [1 / len(weights)] * len(weights)
-
-    # Use numpy's choice function for weighted random selection
-    selected_indices = np.random.choice(len(question_ids), size=num_questions, replace=False, p=normalized_weights)
-    selected_questions = [question_ids[i] for i in selected_indices]
-
-    return selected_questions
-
+        return random.sample(question_ids, num_questions)
 
 
 def get_questions_for_subject(subject_id, used_questions):
@@ -253,11 +316,13 @@ def get_questions_for_subject(subject_id, used_questions):
         print(f"No questions available for subject {subject_id} after excluding used questions.")
     return questions
 
-def get_questions_for_mock_test_instance(mock_test_id):
+def get_questions_for_mock_test_instance(testID, student_id):
     """
-    Retrieves all question IDs for a given mock test instance, categorized by subject and section.
-    
-    :param mock_test_id: ID of the mock test instance.
+    Retrieves all question IDs for a given mock test instance, categorized by subject and section,
+    for a specific student.
+
+    :param testID: ID of the mock test instance.
+    :param student_id: ID of the student.
     :return: Dictionary with subject-wise and section-wise question IDs.
     """
     connection = create_pg_connection(pg_connection_pool)
@@ -266,21 +331,20 @@ def get_questions_for_mock_test_instance(mock_test_id):
 
     try:
         query = """
-        SELECT s.SubjectName, q.Section, q.QuestionID 
+        SELECT s.SubjectName, mtq.Section, q.QuestionID 
         FROM NEETMockTestQuestions mtq
         JOIN Questions q ON mtq.QuestionID = q.QuestionID
         JOIN Chapters c ON q.ChapterID = c.ChapterID
         JOIN Subjects s ON c.SubjectID = s.SubjectID
-        WHERE mtq.MockTestID = %s
+        JOIN NEETMockTests nmt ON mtq.MockTestID = nmt.MockTestID
+        WHERE mtq.MockTestID = %s AND nmt.StudentID = %s
         """
-        cursor.execute(query, (mock_test_id,))
+        cursor.execute(query, (testID, student_id))
         for subject_name, section, question_id in cursor.fetchall():
             if subject_name not in questions_dict:
                 questions_dict[subject_name] = {"SectionA": [], "SectionB": []}
-            if section == 'A':
-                questions_dict[subject_name]["SectionA"].append(question_id)
-            else:
-                questions_dict[subject_name]["SectionB"].append(question_id)
+            section_key = "SectionA" if section == 'A' else "SectionB"
+            questions_dict[subject_name][section_key].append(question_id)
     except Exception as e:
         print(f"Error fetching questions for mock test instance: {e}")
     finally:
