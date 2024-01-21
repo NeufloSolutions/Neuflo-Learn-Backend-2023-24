@@ -11,37 +11,28 @@ def calculate_test_results(student_id, test_instance_id):
             cur.execute("""
                 SELECT TestType, TestID
                 FROM TestInstances
-                WHERE TestInstanceID = %s
-            """, (test_instance_id,))
+                WHERE TestInstanceID = %s AND StudentID = %s
+            """, (test_instance_id,student_id))
             test_instance_data = cur.fetchone()
             if test_instance_data:
                 test_type, test_id = test_instance_data
             else:
                 return None, "Test instance not found"
 
-            # Check if all subjects in a full practice test are completed
+            # Depending on the test type, select the appropriate questions table
             if test_type == "Practice":
-                cur.execute("""
-                    SELECT IsCompleted
-                    FROM PracticeTestCompletion
-                    WHERE PracticeTestID = %s AND StudentID = %s
-                """, (test_id, student_id))
-                completion_data = cur.fetchone()
-                if not completion_data or not completion_data[0]:
-                    return None, "Please complete all subjects in the practice test before proceeding."
-                # Depending on the test type, join the appropriate questions table
                 question_table = "PracticeTestQuestions"
             elif test_type == "Mock":
                 question_table = "NEETMockTestQuestions"
 
-            # Query to get the student responses and the correct answers
+            # Query to get the student responses and the correct answers for the specific test instance
             cur.execute(f"""
                 SELECT SR.StudentResponse, Q.Answer, SR.AnsweringTimeInSeconds, SR.ResponseDate
                 FROM StudentResponses SR
                 JOIN {question_table} PTQ ON SR.QuestionID = PTQ.QuestionID
                 JOIN Questions Q ON PTQ.QuestionID = Q.QuestionID
                 WHERE SR.StudentID = %s AND SR.TestInstanceID = %s
-            """, (student_id, test_instance_id))
+            """, (student_id, test_id))
 
             responses = cur.fetchall()
             correct_answers = 0
@@ -90,7 +81,7 @@ def calculate_test_results(student_id, test_instance_id):
 
             # Update proficiency tables
             print("Updating Proficiency Tables")
-            update_proficiency_tables(cur, student_id, test_instance_id)
+            update_proficiency_tables(cur, student_id, test_id)
 
             # Update the proficiency table specific to the test type
             if test_type == "Practice":
@@ -121,7 +112,9 @@ def calculate_test_results(student_id, test_instance_id):
 
 
 def update_proficiency_tables(cur, student_id, test_instance_id):
-    # Fetch all questions and responses
+    # Debugging: Print input parameters
+    print(f"Updating proficiency tables for student_id: {student_id}, test_instance_id: {test_instance_id}")
+
     cur.execute("""
         SELECT Q.ChapterID, Q.SubtopicID, SR.StudentResponse, Q.Answer
         FROM StudentResponses SR
@@ -132,21 +125,31 @@ def update_proficiency_tables(cur, student_id, test_instance_id):
     chapter_proficiency_data = []
     subtopic_proficiency_data = []
 
-    # Aggregate counts
     for chapter_id, subtopic_id, student_response, correct_answer in cur.fetchall():
         is_correct = student_response.lower() == correct_answer.lower()
         chapter_proficiency_data.append((student_id, chapter_id, is_correct))
         subtopic_proficiency_data.append((student_id, subtopic_id, is_correct))
 
-    # Perform bulk update for ChapterProficiency
+    # Debugging: Print fetched data
+    if not chapter_proficiency_data and not subtopic_proficiency_data:
+        print(f"No proficiency data found for student_id: {student_id}, test_instance_id: {test_instance_id}")
+    # else:
+    #     print("Chapter Proficiency Data:", chapter_proficiency_data)
+    #     print("Subtopic Proficiency Data:", subtopic_proficiency_data)
+
     update_proficiency_bulk(cur, chapter_proficiency_data, "ChapterProficiency", "ChapterID")
-    # Perform bulk update for SubtopicProficiency
     update_proficiency_bulk(cur, subtopic_proficiency_data, "SubtopicProficiency", "SubtopicID")
 
 
 
 
+
 def update_proficiency_bulk(cur, proficiency_data, table_name, id_column_name):
+    # Check if proficiency_data is empty
+    if not proficiency_data:
+        print(f"No data to update for {table_name}")
+        return
+
     # Construct a single query for bulk update
     args_str = ','.join(cur.mogrify("(%s,%s,%s)", (x[0], x[1], x[2])).decode('utf-8') for x in proficiency_data)
 
