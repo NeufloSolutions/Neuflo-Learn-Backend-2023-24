@@ -14,7 +14,7 @@ def get_question_details(question_id):
                 SELECT Q.Question, Q.OptionA, Q.OptionB, Q.OptionC, Q.OptionD, I.ImageURL, I.ContentType
                 FROM Questions Q
                 LEFT JOIN Images I ON Q.QuestionID = I.QuestionID
-                WHERE Q.QuestionID = %s AND (I.ContentType IS NULL OR I.ContentType IN ('QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD'))
+                WHERE Q.QuestionID = %s
             """, (question_id,))
             questions = cur.fetchall()
 
@@ -22,7 +22,7 @@ def get_question_details(question_id):
             for q in questions:
                 if not result:
                     result = {"Question": q[0], "Options": {"A": q[1], "B": q[2], "C": q[3], "D": q[4]}, "Images": []}
-                if q[5]:
+                if q[5] and q[6] in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD']:
                     result["Images"].append({"URL": q[5], "Type": q[6]})
             return result, None
     except Exception as e:
