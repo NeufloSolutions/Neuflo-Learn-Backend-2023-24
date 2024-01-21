@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS Images (
 -- 'PracticeTestID' is a unique identifier for each practice test instance.
 -- 'StudentID' refers to the ID of the student taking the test (from an external database).
 CREATE TABLE IF NOT EXISTS PracticeTests (
-    PracticeTestID SERIAL PRIMARY KEY,
+    PracticeTestID INT PRIMARY KEY,
     StudentID INT NOT NULL
 );
 

@@ -44,8 +44,13 @@ def generate_practice_test(student_id):
 
     try:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO PracticeTests (StudentID) VALUES (%s) RETURNING PracticeTestID", (student_id,))
-            practice_test_id = cur.fetchone()[0]
+            # Generate a random 4 or 5 digit integer
+            practice_test_id = random.randint(1000, 99999)
+
+
+            cur.execute("INSERT INTO PracticeTests (PracticeTestID, StudentID) VALUES (%s, %s) RETURNING PracticeTestID", (practice_test_id, student_id,))
+            # Ensure that the practice_test_id is actually inserted
+            assert cur.fetchone()[0] == practice_test_id
 
             subjects = {
                 1: {"name": "Physics", "total_questions": 30},
@@ -54,6 +59,8 @@ def generate_practice_test(student_id):
             }
 
             used_questions = get_cached_questions(student_id)
+            if not isinstance(used_questions, dict):
+                used_questions = {}
 
             for subject_id, details in subjects.items():
                 chapters = fetch_chapters(cur, subject_id)
@@ -81,7 +88,6 @@ def generate_practice_test(student_id):
             test_instance_id = cur.fetchone()[0]
 
             conn.commit()
-            # Return the testInstanceID and subject_tests
             return {"testInstanceID": test_instance_id, "subject_tests": subjects}, None
     except Exception as e:
         conn.rollback()
@@ -91,13 +97,27 @@ def generate_practice_test(student_id):
 
 
 
-def get_practice_test_question_ids(practice_test_id, student_id):
+def get_practice_test_question_ids(test_instance_id, student_id):
     conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return None, "Database connection failed"
 
     try:
         with conn.cursor() as cur:
+            # First, retrieve the PracticeTestID from the TestInstances table
+            cur.execute("""
+                SELECT TestID
+                FROM TestInstances
+                WHERE TestInstanceID = %s AND StudentID = %s AND TestType = 'Practice'
+            """, (test_instance_id, student_id))
+            
+            result = cur.fetchone()
+            if result is None:
+                return None, "Test instance not found or not a practice test."
+
+            practice_test_id = result[0]
+
+            # Now, fetch the questions associated with the practice test
             cur.execute("""
                 SELECT PTS.SubjectName, Q.QuestionID
                 FROM Questions Q
@@ -106,6 +126,7 @@ def get_practice_test_question_ids(practice_test_id, student_id):
                 JOIN PracticeTests PT ON PTS.PracticeTestID = PT.PracticeTestID
                 WHERE PT.PracticeTestID = %s AND PT.StudentID = %s
             """, (practice_test_id, student_id))
+
             subject_questions = {}
             for subject_name, question_id in cur.fetchall():
                 if subject_name not in subject_questions:
@@ -117,7 +138,8 @@ def get_practice_test_question_ids(practice_test_id, student_id):
     finally:
         release_pg_connection(pg_connection_pool, conn)
 
-def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
+
+def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers):
     conn = create_pg_connection(pg_connection_pool)
     if not conn:
         return "Database connection failed"
@@ -130,11 +152,11 @@ def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
 
     try:
         with conn.cursor() as cur:
-            # Retrieve PracticeTestID related to TestInstanceID
+            # Retrieve TestID (which is the PracticeTestID) related to TestInstanceID
             cur.execute("""
-                SELECT PracticeTestID FROM TestInstances
+                SELECT TestID FROM TestInstances
                 WHERE TestInstanceID = %s
-            """, (test_id,))
+            """, (testInstanceID,))
             practice_test_result = cur.fetchone()
             if practice_test_result is None:
                 return None, "Practice test not found"
@@ -165,7 +187,7 @@ def submit_practice_test_answers(student_id, test_id, subject_ID, answers):
                         StudentResponse = EXCLUDED.StudentResponse,
                         AnsweringTimeInSeconds = EXCLUDED.AnsweringTimeInSeconds,
                         ResponseDate = CURRENT_TIMESTAMP
-                """, (test_id, student_id, question_id, student_response, answering_time))
+                """, (practice_test_id, student_id, question_id, student_response, answering_time))
 
             # Mark subject test as completed
             cur.execute("""

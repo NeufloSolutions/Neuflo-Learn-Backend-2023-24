@@ -42,28 +42,28 @@ async def api_generate_practice_test(student_id: int):
     # Update the return statement to provide more detailed information about the generated practice test
     return {
         "message": "Practice test generated successfully",
-        "practice_test_id": result["practice_test_id"],
+        "testInstanceID": result["testInstanceID"],
         "subject_tests": result["subject_tests"]  # Assuming 'result' contains detailed info about subject-wise tests
     }
 
 
-@app.get("/practice-test/{practice_test_id}/questions", response_model=Dict[str, List[int]])
-async def api_get_practice_test_question_ids(practice_test_id: int, student_id: int):
-    subject_questions, error = get_practice_test_question_ids(practice_test_id, student_id)
+@app.get("/practice-test/{test_Instance_ID}/questions", response_model=Dict[str, List[int]])
+async def api_get_practice_test_question_ids(testInstanceID: int, student_id: int):
+    subject_questions, error = get_practice_test_question_ids(testInstanceID, student_id)
     if error:
         raise HTTPException(status_code=500, detail=error)
     return subject_questions
 
 @app.get("/get-practice-test-answers/", response_model=List)
-async def api_get_practice_test_answers_only(test_id: int, student_id: int, subject_id: int):
-    answers, error = get_practice_test_answers_only(test_id, student_id, subject_id)
+async def api_get_practice_test_answers_only(testInstanceID: int, student_id: int, subject_id: int):
+    answers, error = get_practice_test_answers_only(testInstanceID, student_id, subject_id)
     if error:
         raise HTTPException(status_code=500, detail=error)
     return answers
 
-@app.post("/submit-practice-test-answers/{student_id}/{test_id}/{subject_test_id}")
-def api_submit_practice_test_answers(student_id: int, test_id: int, subject_test_id: int, answers: dict):
-    result = submit_practice_test_answers(student_id, test_id, subject_test_id, answers)
+@app.post("/submit-practice-test-answers/{student_id}/{testInstanceID}/{subject_test_id}")
+def api_submit_practice_test_answers(student_id: int, testInstanceID: int, subject_test_id: int, answers: dict):
+    result = submit_practice_test_answers(student_id, testInstanceID, subject_test_id, answers)
     if result is None or isinstance(result, str):
         return {"error": result or "An error occurred"}
     return result
