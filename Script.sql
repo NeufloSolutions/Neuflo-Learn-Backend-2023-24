@@ -243,7 +243,7 @@ CREATE TABLE IF NOT EXISTS StudentMockTestHistory (
 --7. TestInstances Table
 -- This table stores each unique instance of a test created for a student.
 CREATE TABLE IF NOT EXISTS TestInstances (
-    TestInstanceID SERIAL PRIMARY KEY,    -- Unique identifier for each test instance.
+    TestInstanceID INT PRIMARY KEY,    -- Unique identifier for each test instance.
     StudentID INT NOT NULL,               -- ID of the student taking the test.
     TestID INT NOT NULL,                  -- ID of the specific mock or practice test.
     TestType VARCHAR(50) NOT NULL,        -- Type of the test (e.g., 'Practice', 'Mock').
