@@ -6,37 +6,6 @@ def fetch_chapters(cur, subject_id):
     cur.execute("SELECT ChapterID FROM Chapters WHERE SubjectID = %s", (subject_id,))
     return [chapter[0] for chapter in cur.fetchall()]
 
-import random
-
-def select_questions(cur, chapters, used_questions, total_questions, subject_id):
-    selected_questions = []
-    
-    # Gather all available questions from the chapters
-    all_questions = []
-    for chapter_id in chapters:
-        cur.execute("""
-            SELECT q.QuestionID 
-            FROM Questions q 
-            INNER JOIN Chapters c ON q.ChapterID = c.ChapterID 
-            WHERE q.ChapterID = %s AND c.SubjectID = %s
-        """, (chapter_id, subject_id))
-        chapter_questions = [question[0] for question in cur.fetchall()]
-        
-        # Exclude already used questions
-        chapter_questions = [q for q in chapter_questions if q not in used_questions.get(chapter_id, [])]
-        all_questions.extend(chapter_questions)
-
-    # Randomly select questions ensuring no repetition
-    while len(selected_questions) < total_questions and all_questions:
-        selected_question = random.choice(all_questions)
-        selected_questions.append(selected_question)
-        used_questions.setdefault(chapters[0], []).append(selected_question)  # Assign to the first chapter in used_questions
-        all_questions.remove(selected_question)
-
-    random.shuffle(selected_questions)
-    return selected_questions[:total_questions]
-
-
 def generate_practice_test(student_id):
     conn = create_pg_connection(pg_connection_pool)
     if not conn:
@@ -44,9 +13,8 @@ def generate_practice_test(student_id):
 
     try:
         with conn.cursor() as cur:
-            # Generate a random 4 or 5 digit integer
+            # Generate a random 4 or 5 digit integer for PracticeTestID
             practice_test_id = random.randint(1000, 99999)
-
 
             cur.execute("INSERT INTO PracticeTests (PracticeTestID, StudentID) VALUES (%s, %s) RETURNING PracticeTestID", (practice_test_id, student_id,))
             # Ensure that the practice_test_id is actually inserted
@@ -80,12 +48,15 @@ def generate_practice_test(student_id):
 
             cache_questions(student_id, used_questions)
 
-            # Insert into TestInstances and return TestInstanceID
+            # Generate a random 4 or 5 digit integer for TestInstanceID
+            test_instance_id = random.randint(1000, 99999)
+
+            # Insert into TestInstances with the generated TestInstanceID
             cur.execute("""
-                INSERT INTO TestInstances (StudentID, TestID, TestType)
-                VALUES (%s, %s, 'Practice') RETURNING TestInstanceID
-            """, (student_id, practice_test_id))
-            test_instance_id = cur.fetchone()[0]
+                INSERT INTO TestInstances (TestInstanceID, StudentID, TestID, TestType)
+                VALUES (%s, %s, %s, 'Practice') RETURNING TestInstanceID
+            """, (test_instance_id, student_id, practice_test_id))
+            assert cur.fetchone()[0] == test_instance_id
 
             conn.commit()
             return {"testInstanceID": test_instance_id, "subject_tests": subjects}, None
@@ -95,7 +66,33 @@ def generate_practice_test(student_id):
     finally:
         release_pg_connection(pg_connection_pool, conn)
 
+def select_questions(cur, chapters, used_questions, total_questions, subject_id):
+    selected_questions = []
+    
+    # Gather all available questions from the chapters
+    all_questions = []
+    for chapter_id in chapters:
+        cur.execute("""
+            SELECT q.QuestionID 
+            FROM Questions q 
+            INNER JOIN Chapters c ON q.ChapterID = c.ChapterID 
+            WHERE q.ChapterID = %s AND c.SubjectID = %s
+        """, (chapter_id, subject_id))
+        chapter_questions = [question[0] for question in cur.fetchall()]
+        
+        # Exclude already used questions
+        chapter_questions = [q for q in chapter_questions if q not in used_questions.get(chapter_id, [])]
+        all_questions.extend(chapter_questions)
 
+    # Randomly select questions ensuring no repetition
+    while len(selected_questions) < total_questions and all_questions:
+        selected_question = random.choice(all_questions)
+        selected_questions.append(selected_question)
+        used_questions.setdefault(chapters[0], []).append(selected_question)  # Assign to the first chapter in used_questions
+        all_questions.remove(selected_question)
+
+    random.shuffle(selected_questions)
+    return selected_questions[:total_questions]
 
 def get_practice_test_question_ids(test_instance_id, student_id):
     conn = create_pg_connection(pg_connection_pool)
