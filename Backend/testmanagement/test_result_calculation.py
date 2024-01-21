@@ -29,8 +29,6 @@ def calculate_test_results(student_id, test_instance_id):
                 completion_data = cur.fetchone()
                 if not completion_data or not completion_data[0]:
                     return None, "Please complete all subjects in the practice test before proceeding."
-
-
                 # Depending on the test type, join the appropriate questions table
                 question_table = "PracticeTestQuestions"
             elif test_type == "Mock":
