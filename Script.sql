@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS PracticeTestCompletion (
 -- 'MockTestID' is a unique identifier for each NEET mock test instance.
 -- 'StudentID' refers to the ID of the student taking the test (from an external database).
 CREATE TABLE IF NOT EXISTS NEETMockTests (
-    MockTestID SERIAL PRIMARY KEY,
+    MockTestID INT PRIMARY KEY,
     StudentID INT NOT NULL
 );
 

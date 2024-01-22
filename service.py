@@ -109,6 +109,29 @@ async def get_mock_questions_endpoint(testID: int, student_id: int = Query(...))
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/submit-mock-test-answers/{student_id}/{testInstanceID}")
+def api_submit_mock_test_answers(student_id: int, testInstanceID: int, answers: dict):
+    """
+    Endpoint to submit answers for a mock test.
+
+    - Path Parameters:
+      - student_id: The unique identifier of the student.
+      - testInstanceID: The unique identifier of the test instance.
+
+    - Request Body:
+      - answers: A dictionary of answers, where the key is the question ID and the value is the student's answer.
+    
+    - Returns:
+      On success: A JSON object indicating successful submission.
+      On failure: An error message.
+    """
+    result, error = submit_mock_test_answers(student_id, testInstanceID, answers)
+    if error:
+        return {"error": error}
+    return result
+
+
+
 ######################################################################################################
 
 @app.get("/student-test-history/{student_id}")
