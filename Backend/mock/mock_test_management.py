@@ -11,12 +11,9 @@ def generate_mock_test(student_id):
     :param student_id: ID of the student.
     :return: Dictionary with message and testInstanceID.
     """
-    # Assuming subject IDs for Physics, Chemistry, Botany, and Zoology are 1, 2, 3, and 4
     subject_ids = [1, 2, 3, 4]
     mock_test_questions = []
 
-    # Select questions for each subject and section
-    mock_test_questions = []
     for subject_id in subject_ids:
         questions_a = select_questions_for_subject(subject_id, student_id, 'A')
         questions_b = select_questions_for_subject(subject_id, student_id, 'B')
@@ -24,12 +21,13 @@ def generate_mock_test(student_id):
 
     print(f"Total questions selected for the mock test: {len(mock_test_questions)}")
 
-    # Create test instance and return the response
-    test_instance_id = create_test_instance(student_id, mock_test_questions)
-    if test_instance_id:
-        return {"message": "Mock test generated successfully", "testInstanceID": test_instance_id}
-    else:
-        return {"message": "Error in generating mock test", "testInstanceID": None}
+    success = False
+    while not success:
+        mock_test_id = random.randint(1000, 99999)
+        test_instance_id = random.randint(1000, 99999)
+        success = create_test_instance(student_id, mock_test_id, test_instance_id, mock_test_questions)
+
+    return {"message": "Mock test generated successfully", "testInstanceID": test_instance_id}
 
 def get_chapter_ids_for_questions(question_ids):
     """
@@ -55,8 +53,6 @@ def get_chapter_ids_for_questions(question_ids):
         release_pg_connection(pg_connection_pool, connection)
     return question_chapter_mapping
 
-
-import random
 
 def select_questions_for_subject(subject_id, student_id, section):
     """
@@ -139,52 +135,42 @@ def get_additional_questions(subject_id, excluded_questions, chapters_weightage,
     return additional_questions
 
 
-def create_test_instance(student_id, question_ids_with_sections):
-    """
-    Enhanced version of create_test_instance for better efficiency and error handling.
-    
-    :param student_id: ID of the student.
-    :param question_ids_with_sections: List of tuples with selected question IDs and their sections.
-    :return: ID of the created test instance.
-    """
+def create_test_instance(student_id, mock_test_id, test_instance_id, question_ids_with_sections):
     connection = create_pg_connection(pg_connection_pool)
     cursor = connection.cursor()
 
     try:
-        # Insert a new mock test instance and get its MockTestID
-        cursor.execute("INSERT INTO NEETMockTests (StudentID) VALUES (%s) RETURNING MockTestID", (student_id,))
-        result = cursor.fetchone()
-        if not result:
-            raise Exception("Failed to create mock test instance.")
-        mock_test_id = result[0]
+        # Check for existing MockTestID and TestInstanceID
+        cursor.execute("SELECT COUNT(*) FROM NEETMockTests WHERE MockTestID = %s", (mock_test_id,))
+        if cursor.fetchone()[0] > 0:
+            return False
+
+        cursor.execute("SELECT COUNT(*) FROM TestInstances WHERE TestInstanceID = %s", (test_instance_id,))
+        if cursor.fetchone()[0] > 0:
+            return False
+
+        # Insert into NEETMockTests
+        cursor.execute("INSERT INTO NEETMockTests (MockTestID, StudentID) VALUES (%s, %s)", (mock_test_id, student_id))
 
         # Validate and prepare data for bulk insert
         if not all(isinstance(q, tuple) and len(q) == 2 for q in question_ids_with_sections):
             raise ValueError("Invalid format in question_ids_with_sections. Expected list of tuples (QuestionID, Section).")
-        # Convert list of tuples into the correct format for bulk insert
         questions_data = [(mock_test_id, qid, sec) for qid, sec in question_ids_with_sections]
-
 
         # Bulk insert selected questions into NEETMockTestQuestions with section info
         insert_query = "INSERT INTO NEETMockTestQuestions (MockTestID, QuestionID, Section) VALUES %s"
         psycopg2.extras.execute_values(cursor, insert_query, questions_data)
 
-        # Record the test instance and get its TestInstanceID
-        cursor.execute("INSERT INTO TestInstances (StudentID, TestID, TestType) VALUES (%s, %s, 'Mock') RETURNING TestInstanceID", (student_id, mock_test_id))
-        test_instance_id_result = cursor.fetchone()
-        if not test_instance_id_result:
-            raise Exception("Failed to create test instance.")
-        test_instance_id = test_instance_id_result[0]
+        # Insert into TestInstances
+        cursor.execute("INSERT INTO TestInstances (TestInstanceID, StudentID, TestID, TestType) VALUES (%s, %s, %s, 'Mock')", (test_instance_id, student_id, mock_test_id))
 
-        # Commit the transaction
         connection.commit()
-
-        return test_instance_id
+        return True
 
     except Exception as e:
-        print(f"Error creating test instance: {e}")
+        print(f"Rollback: Error creating test instance: {e}")
         connection.rollback()
-        return None
+        return False
     finally:
         release_pg_connection(pg_connection_pool, connection)
 
@@ -316,12 +302,12 @@ def get_questions_for_subject(subject_id, used_questions):
         print(f"No questions available for subject {subject_id} after excluding used questions.")
     return questions
 
-def get_questions_for_mock_test_instance(testID, student_id):
+def get_questions_for_mock_test_instance(testInstanceID, student_id):
     """
     Retrieves all question IDs for a given mock test instance, categorized by subject and section,
-    for a specific student.
+    for a specific student, using the test instance ID.
 
-    :param testID: ID of the mock test instance.
+    :param testInstanceID: ID of the test instance.
     :param student_id: ID of the student.
     :return: Dictionary with subject-wise and section-wise question IDs.
     """
@@ -330,6 +316,14 @@ def get_questions_for_mock_test_instance(testID, student_id):
     questions_dict = {}
 
     try:
+        # First, get the MockTestID from the TestInstances table
+        cursor.execute("SELECT TestID FROM TestInstances WHERE TestInstanceID = %s AND StudentID = %s", (testInstanceID, student_id))
+        result = cursor.fetchone()
+        if not result:
+            raise Exception("No MockTestID found for the given TestInstanceID and StudentID.")
+        mock_test_id = result[0]
+
+        # Now fetch the questions using MockTestID
         query = """
         SELECT s.SubjectName, mtq.Section, q.QuestionID 
         FROM NEETMockTestQuestions mtq
@@ -338,16 +332,69 @@ def get_questions_for_mock_test_instance(testID, student_id):
         JOIN Subjects s ON c.SubjectID = s.SubjectID
         JOIN NEETMockTests nmt ON mtq.MockTestID = nmt.MockTestID
         WHERE mtq.MockTestID = %s AND nmt.StudentID = %s
+        ORDER BY s.SubjectName
         """
-        cursor.execute(query, (testID, student_id))
+        cursor.execute(query, (mock_test_id,student_id))
         for subject_name, section, question_id in cursor.fetchall():
             if subject_name not in questions_dict:
                 questions_dict[subject_name] = {"SectionA": [], "SectionB": []}
             section_key = "SectionA" if section == 'A' else "SectionB"
             questions_dict[subject_name][section_key].append(question_id)
+
     except Exception as e:
         print(f"Error fetching questions for mock test instance: {e}")
     finally:
         release_pg_connection(pg_connection_pool, connection)
 
     return questions_dict
+
+def submit_mock_test_answers(student_id, testInstanceID, answers):
+    conn = create_pg_connection(pg_connection_pool)
+    if not conn:
+        return "Database connection failed"
+
+    try:
+        with conn.cursor() as cur:
+            # Retrieve MockTestID related to TestInstanceID
+            cur.execute("""
+                SELECT TestID FROM TestInstances
+                WHERE TestInstanceID = %s
+            """, (testInstanceID,))
+            mock_test_result = cur.fetchone()
+            if mock_test_result is None:
+                return None, "Mock test not found"
+
+            mock_test_id = mock_test_result[0]
+
+            # Record each student response
+            for question_id, response in answers.items():
+                answering_time = response.get('time', 60)  # Default time if not provided
+                student_response = response.get('answer', 'n')  # Default to 'n' if not provided or empty
+
+                cur.execute("""
+                    INSERT INTO StudentResponses (TestInstanceID, StudentID, QuestionID, StudentResponse, AnsweringTimeInSeconds)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (TestInstanceID, StudentID, QuestionID)
+                    DO UPDATE SET 
+                        StudentResponse = EXCLUDED.StudentResponse,
+                        AnsweringTimeInSeconds = EXCLUDED.AnsweringTimeInSeconds,
+                        ResponseDate = CURRENT_TIMESTAMP
+                """, (testInstanceID, student_id, question_id, student_response, answering_time))
+
+            # Mark mock test as completed
+            cur.execute("""
+                INSERT INTO MockTestCompletion (MockTestID, StudentID, IsCompleted, CompletionDate)
+                VALUES (%s, %s, TRUE, CURRENT_TIMESTAMP)
+                ON CONFLICT (MockTestID, StudentID)
+                DO UPDATE SET 
+                    IsCompleted = TRUE,
+                    CompletionDate = CURRENT_TIMESTAMP
+            """, (mock_test_id, student_id))
+
+            conn.commit()
+            return {"message": "Submission successful"}
+    except Exception as e:
+        conn.rollback()
+        return None, str(e)
+    finally:
+        release_pg_connection(pg_connection_pool, conn)
