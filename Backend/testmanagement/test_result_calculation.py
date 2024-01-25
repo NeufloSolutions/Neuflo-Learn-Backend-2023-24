@@ -152,7 +152,7 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
     avg_answering_time = total_answering_time / len(responses) if responses else None
     score = correct_answers * 4 - incorrect_answers  # Scoring logic for mock tests
 
-    last_response_date = max(r[5] for r in responses)
+    last_response_date = max(r[6] for r in responses)
     # Update TestHistory table
     cur.execute("""
         INSERT INTO TestHistory (TestInstanceID, StudentID, Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds, LastTestAttempt)
