@@ -2,19 +2,38 @@ from fastapi import FastAPI, HTTPException, Query
 from typing import List, Dict, Union
 from pydantic import BaseModel
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
-from Backend.dbconfig.cache_management import get_cached_questions, cache_questions, clear_student_cache  
+from Backend.dbconfig.cache_management import clear_student_cache  
 from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
-from Backend.testmanagement.question_management import get_question_details, get_answer
+from Backend.testmanagement.question_management import get_question_details, get_answer, list_tests_for_student
 from Backend.testmanagement.test_result_calculation import calculate_test_results
 from Backend.testmanagement.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency
-from Backend.practice.answer_retrieval import get_practice_test_answers_only
-from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance
+from Backend.practice.practice_answer_retrieval import get_practice_test_answers_only
+from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
+from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only
 
 app = FastAPI()
 
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the NEET Exam Preparation API"}
+
+@app.get("/list-tests/{student_id}")
+def api_list_tests_for_student(student_id: int):
+    """
+    Endpoint to list all tests for a specific student.
+
+    - Path Parameter:
+      - student_id: The unique identifier of the student.
+
+    - Returns:
+      On success: A JSON object containing a list of tests with their completion status.
+      On failure: An error message.
+    """
+    tests, error = list_tests_for_student(student_id)
+    if error:
+        return {"error": error}
+    return {"tests": tests}
+
 
 @app.get("/generate-practice-test/{student_id}")
 async def api_generate_practice_test(student_id: int):
@@ -108,9 +127,27 @@ async def get_mock_questions_endpoint(testID: int, student_id: int = Query(...))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/get-mock-test-answers/{testInstanceID}/{student_id}")
+def api_get_mock_test_answers(testInstanceID: int, student_id: int):
+    """
+    Endpoint to retrieve answers for a mock test.
+
+    - Path Parameters:
+      - testInstanceID: The unique identifier of the test instance.
+      - student_id: The unique identifier of the student.
+    
+    - Returns:
+      On success: A JSON object containing a list of answers.
+      On failure: An error message.
+    """
+    answers, error = get_mock_test_answers_only(testInstanceID, student_id)
+    if error:
+        return {"error": error}
+    return {"answers": answers['answers']}
+
 
 @app.post("/submit-mock-test-answers/{student_id}/{testInstanceID}")
-def api_submit_mock_test_answers(student_id: int, testInstanceID: int, answers: dict):
+def api_submit_mock_test_answers(student_id: int, testInstanceID: int, data: dict):
     """
     Endpoint to submit answers for a mock test.
 
@@ -119,16 +156,20 @@ def api_submit_mock_test_answers(student_id: int, testInstanceID: int, answers: 
       - testInstanceID: The unique identifier of the test instance.
 
     - Request Body:
-      - answers: A dictionary of answers, where the key is the question ID and the value is the student's answer.
+      - data: A dictionary containing a key "answers" with a value that is another dictionary.
+             The inner dictionary's keys are composites of subject ID, section, and question ID,
+             and values are dictionaries containing the student's answer and the time taken.
     
     - Returns:
       On success: A JSON object indicating successful submission.
       On failure: An error message.
     """
+    answers = data.get("answers", {})
     result, error = submit_mock_test_answers(student_id, testInstanceID, answers)
     if error:
         return {"error": error}
     return result
+
 
 
 
