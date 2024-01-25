@@ -104,7 +104,7 @@ def calculate_practice_test_results(cur, student_id, test_instance_id, test_id):
         "incorrect_answers": incorrect_answers,
         "average_answering_time": avg_answering_time,
         "last_test_datetime": last_test_datetime 
-    }
+    }, None
 
 
 def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
@@ -154,6 +154,7 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
 
     last_response_date = max(r[6] for r in responses)
     # Update TestHistory table
+    print("Inserting into History Table")
     cur.execute("""
         INSERT INTO TestHistory (TestInstanceID, StudentID, Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds, LastTestAttempt)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -166,21 +167,21 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
             AverageAnsweringTimeInSeconds = EXCLUDED.AverageAnsweringTimeInSeconds,
             LastTestAttempt = EXCLUDED.LastTestAttempt;
     """, (test_instance_id, student_id, score, len(responses), correct_answers, incorrect_answers, avg_answering_time, last_response_date))
-
     # Update proficiency tables
     print("Updating Proficiency Tables")
     update_proficiency_tables(cur, student_id, test_instance_id)
 
     # Update the mock test proficiency
     print("Updating Mock Test Proficiency")
-    update_mock_test_proficiency(cur, student_id, score, correct_answers, incorrect_answers, avg_answering_time, max(r[5] for r in responses))
-
+    update_mock_test_proficiency(cur, student_id, score, correct_answers, incorrect_answers, avg_answering_time, last_response_date)
+    print("Function executed... returning data")
     return {
         "score": score,
         "correct_answers": correct_answers,
         "incorrect_answers": incorrect_answers,
-        "average_answering_time": avg_answering_time
-    }
+        "average_answering_time": avg_answering_time,
+        "last_test_datetime": last_response_date 
+    }, None
 
 def evaluate_response(student_response, correct_answer):
     # Utility function to evaluate a response
@@ -285,11 +286,12 @@ def update_practice_test_proficiency(cur, student_id, score, correct_answers, in
 
     # Fetch the most recent test data for the student from TestHistory
     cur.execute("""
-        SELECT Score, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds
-        FROM TestHistory
-        WHERE StudentID = %s
-        ORDER BY LastTestAttempt DESC
-        LIMIT %s
+    SELECT TH.Score, TH.CorrectAnswers, TH.IncorrectAnswers, TH.AverageAnsweringTimeInSeconds
+    FROM TestHistory TH
+    JOIN TestInstances TI ON TH.TestInstanceID = TI.TestInstanceID
+    WHERE TI.StudentID = %s AND TI.TestType = 'Practice'
+    ORDER BY TH.LastTestAttempt DESC
+    LIMIT %s
     """, (student_id, num_recent_tests))
 
     results = cur.fetchall()
@@ -336,12 +338,14 @@ def update_mock_test_proficiency(cur, student_id, score, correct_answers, incorr
 
     # Fetch the most recent mock test data for the student from TestHistory
     cur.execute("""
-        SELECT Score, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds
-        FROM TestHistory
-        WHERE StudentID = %s AND TestType = 'Mock'
-        ORDER BY LastTestAttempt DESC
-        LIMIT %s
+    SELECT TH.Score, TH.CorrectAnswers, TH.IncorrectAnswers, TH.AverageAnsweringTimeInSeconds
+    FROM TestHistory TH
+    JOIN TestInstances TI ON TH.TestInstanceID = TI.TestInstanceID
+    WHERE TI.StudentID = %s AND TI.TestType = 'Mock'
+    ORDER BY TH.LastTestAttempt DESC
+    LIMIT %s
     """, (student_id, num_recent_tests))
+
 
     results = cur.fetchall()
 
