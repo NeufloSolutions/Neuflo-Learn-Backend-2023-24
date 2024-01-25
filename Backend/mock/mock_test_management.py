@@ -351,26 +351,25 @@ def get_questions_for_mock_test_instance(testInstanceID, student_id):
 def submit_mock_test_answers(student_id, testInstanceID, answers):
     conn = create_pg_connection(pg_connection_pool)
     if not conn:
-        return "Database connection failed"
+        return None, "Database connection failed"
 
     try:
         with conn.cursor() as cur:
-            # Retrieve MockTestID related to TestInstanceID
+            # Retrieve MockTestID from TestInstances
             cur.execute("""
                 SELECT TestID FROM TestInstances
-                WHERE TestInstanceID = %s
-            """, (testInstanceID,))
+                WHERE TestInstanceID = %s AND StudentID = %s
+            """, (testInstanceID, student_id))
             mock_test_result = cur.fetchone()
             if mock_test_result is None:
                 return None, "Mock test not found"
-
             mock_test_id = mock_test_result[0]
 
             # Record each student response
-            for question_id, response in answers.items():
+            for composite_key, response in answers.items():
+                _, _, question_id = composite_key.split('_')
+                student_response = response.get('answer', 'n')  # Default to 'n' if not provided
                 answering_time = response.get('time', 60)  # Default time if not provided
-                student_response = response.get('answer', 'n')  # Default to 'n' if not provided or empty
-
                 cur.execute("""
                     INSERT INTO StudentResponses (TestInstanceID, StudentID, QuestionID, StudentResponse, AnsweringTimeInSeconds)
                     VALUES (%s, %s, %s, %s, %s)
@@ -379,7 +378,7 @@ def submit_mock_test_answers(student_id, testInstanceID, answers):
                         StudentResponse = EXCLUDED.StudentResponse,
                         AnsweringTimeInSeconds = EXCLUDED.AnsweringTimeInSeconds,
                         ResponseDate = CURRENT_TIMESTAMP
-                """, (testInstanceID, student_id, question_id, student_response, answering_time))
+                """, (testInstanceID, student_id, int(question_id), student_response, answering_time))
 
             # Mark mock test as completed
             cur.execute("""
@@ -392,7 +391,7 @@ def submit_mock_test_answers(student_id, testInstanceID, answers):
             """, (mock_test_id, student_id))
 
             conn.commit()
-            return {"message": "Submission successful"}
+            return {"message": "Submission successful"}, None
     except Exception as e:
         conn.rollback()
         return None, str(e)
