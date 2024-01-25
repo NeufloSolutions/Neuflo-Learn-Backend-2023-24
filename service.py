@@ -94,13 +94,19 @@ async def get_test_results(student_id: int, test_instance_id: int):
         raise HTTPException(status_code=500, detail="Database connection failed")
     
     try:
-        results, error = calculate_test_results(student_id, test_instance_id)
-        if error:
-            raise HTTPException(status_code=404, detail=error)
-        return results
+        result = calculate_test_results(student_id, test_instance_id)
+        if isinstance(result, tuple) and len(result) == 2:
+            results, error = result
+            if error:
+                raise HTTPException(status_code=404, detail=error)
+            return results
+        else:
+            # Handle unexpected return value
+            raise HTTPException(status_code=500, detail="Unexpected error occurred")
     finally:
         # Release the connection back to the pool
         release_pg_connection(pg_connection_pool, conn)
+
 
 ######################################################################################################
 
