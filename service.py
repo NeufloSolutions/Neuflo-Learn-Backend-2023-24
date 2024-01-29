@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 from typing import List, Dict, Union
 from pydantic import BaseModel
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
-from Backend.dbconfig.cache_management import clear_student_cache  
+from Backend.dbconfig.cache_management import clear_student_cache, delete_all_test_data  
 from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
 from Backend.testmanagement.question_management import get_question_details, get_answer, list_tests_for_student
 from Backend.testmanagement.test_result_calculation import calculate_test_results
@@ -245,6 +245,18 @@ async def clear_cache(student_id: int):
         # If any exception occurs during cache clearing, an HTTPException is raised.
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/reset-database/{student_id}")
+async def reset_database(student_id: int):
+    # This endpoint resets the database for the entire application and clears the cache for a specific student.
+    try:
+        # First, clear the cache for the specific student
+        clear_student_cache()
+        # Then, reset the database by clearing all specified tables
+        reset_result = delete_all_test_data()
+        return {"message": f"Database reset successfully. Cache cleared for student {student_id}. {reset_result}"}
+    except Exception as e:
+        # If any exception occurs, raise an HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
