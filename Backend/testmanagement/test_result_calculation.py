@@ -22,8 +22,10 @@ def calculate_test_results(student_id, test_instance_id):
 
             # Call the appropriate function based on test type
             if test_type == "Practice":
+                print("Entered Practice Test Calcuation Function")
                 return calculate_practice_test_results(cur, student_id, test_instance_id, test_id)
             elif test_type == "Mock":
+                print("Entered Mock Test Calcuation Function")
                 return calculate_mock_test_results(cur, student_id, test_instance_id, test_id)
 
     except Exception as e:
@@ -44,8 +46,10 @@ def calculate_practice_test_results(cur, student_id, test_instance_id, test_id):
         JOIN Questions Q ON PTQ.QuestionID = Q.QuestionID
         WHERE SR.StudentID = %s AND SR.TestInstanceID = %s
     """, (student_id, test_instance_id))
-
+    print("Query Going to Execute!")
     responses = cur.fetchall()
+    print("Query Got Executed!")
+    print(f"Length of Responses: {len(responses)}")
     correct_answers = 0
     incorrect_answers = 0
     total_answering_time = 0
@@ -108,80 +112,96 @@ def calculate_practice_test_results(cur, student_id, test_instance_id, test_id):
 
 
 def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
-    # Retrieve responses, including subject and section information
-    cur.execute("""
-        SELECT SR.QuestionID, SR.StudentResponse, Q.Answer, CH.SubjectID, NMTQ.Section, SR.AnsweringTimeInSeconds, SR.ResponseDate
-        FROM StudentResponses SR
-        JOIN Questions Q ON SR.QuestionID = Q.QuestionID
-        JOIN Chapters CH ON Q.ChapterID = CH.ChapterID
-        JOIN NEETMockTestQuestions NMTQ ON Q.QuestionID = NMTQ.QuestionID AND NMTQ.MockTestID = %s
-        WHERE SR.StudentID = %s AND SR.TestInstanceID = %s
-    """, (test_id, student_id, test_instance_id))
+    try:
+        print("Entering calculate_mock_test_results")
+        # Retrieve responses, including subject and section information
+        cur.execute("""
+            SELECT SR.QuestionID, SR.StudentResponse, Q.Answer, CH.SubjectID, NMTQ.Section, SR.AnsweringTimeInSeconds, SR.ResponseDate
+            FROM StudentResponses SR
+            JOIN Questions Q ON SR.QuestionID = Q.QuestionID
+            JOIN Chapters CH ON Q.ChapterID = CH.ChapterID
+            JOIN NEETMockTestQuestions NMTQ ON Q.QuestionID = NMTQ.QuestionID AND NMTQ.MockTestID = %s
+            WHERE SR.StudentID = %s AND SR.TestInstanceID = %s
+        """, (test_id, student_id, test_instance_id))
 
-    responses = cur.fetchall()
-    
-    # Organize responses by subject and section
-    organized_responses = {}
-    for question_id, student_response, answer, subject_id, section, answering_time, response_date in responses:
-        key = (subject_id, section)
-        if key not in organized_responses:
-            organized_responses[key] = []
-        organized_responses[key].append((question_id, student_response, answer, answering_time, response_date))
+        print("Executed the query for fetching responses")
+        responses = cur.fetchall()
+        print(f"Number of responses fetched: {len(responses)}")
 
-    correct_answers = 0
-    incorrect_answers = 0
-    total_answering_time = 0
+        # Organize responses by subject and section
+        organized_responses = {}
+        for question_id, student_response, answer, subject_id, section, answering_time, response_date in responses:
+            key = (subject_id, section)
+            if key not in organized_responses:
+                organized_responses[key] = []
+            organized_responses[key].append((question_id, student_response, answer, answering_time, response_date))
 
-    # Process responses for each subject and section
-    for (subject_id, section), subject_responses in organized_responses.items():
-        if section == 'SectionA':
-            # Evaluate all responses in Section A
-            for _, student_response, answer, answering_time, response_date in subject_responses:
-                correct, incorrect = evaluate_response(student_response, answer)
-                correct_answers += correct
-                incorrect_answers += incorrect
-                total_answering_time += answering_time if answering_time else 0
-        elif section == 'SectionB':
-            # Evaluate only the first 10 responses in Section B
-            for _, student_response, answer, answering_time, _ in sorted(subject_responses, key=lambda x: x[4])[:10]:
-                correct, incorrect = evaluate_response(student_response, answer)
-                correct_answers += correct
-                incorrect_answers += incorrect
-                total_answering_time += answering_time if answering_time else 0
+        print(f"Organized responses into {len(organized_responses)} groups")
+        correct_answers = 0
+        incorrect_answers = 0
+        total_answering_time = 0
 
-    avg_answering_time = total_answering_time / len(responses) if responses else None
-    score = correct_answers * 4 - incorrect_answers  # Scoring logic for mock tests
+        # Process responses for each subject and section
+        for (subject_id, section), subject_responses in organized_responses.items():
+            print(f"Processing for subject {subject_id}, section {section}, response:{len(subject_responses)}")
+            if section in ['SectionA', 'A', 'a']:
+                # Evaluate all responses in Section A
+                for _, student_response, answer, answering_time, _ in subject_responses:
+                    correct, incorrect = evaluate_response(student_response, answer)
+                    correct_answers += correct
+                    incorrect_answers += incorrect
+                    total_answering_time += answering_time if answering_time else 0
+            elif section in ['SectionB', 'B', 'b']:
+                # Evaluate only the first 10 responses in Section B
+                sorted_section_b_responses = sorted(subject_responses, key=lambda x: x[4])[:10]
+                for _, student_response, answer, answering_time, _ in sorted_section_b_responses:
+                    correct, incorrect = evaluate_response(student_response, answer)
+                    correct_answers += correct
+                    incorrect_answers += incorrect
+                    total_answering_time += answering_time if answering_time else 0
 
-    last_response_date = max(r[6] for r in responses)
-    # Update TestHistory table
-    print("Inserting into History Table")
-    cur.execute("""
-        INSERT INTO TestHistory (TestInstanceID, StudentID, Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds, LastTestAttempt)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (TestInstanceID, StudentID)
-        DO UPDATE SET 
-            Score = EXCLUDED.Score, 
-            QuestionsAttempted = EXCLUDED.QuestionsAttempted,
-            CorrectAnswers = EXCLUDED.CorrectAnswers, 
-            IncorrectAnswers = EXCLUDED.IncorrectAnswers, 
-            AverageAnsweringTimeInSeconds = EXCLUDED.AverageAnsweringTimeInSeconds,
-            LastTestAttempt = EXCLUDED.LastTestAttempt;
-    """, (test_instance_id, student_id, score, len(responses), correct_answers, incorrect_answers, avg_answering_time, last_response_date))
-    # Update proficiency tables
-    print("Updating Proficiency Tables")
-    update_proficiency_tables(cur, student_id, test_instance_id)
+            print(f"Subject {subject_id}, Section {section}, Correct: {correct_answers}, Incorrect: {incorrect_answers}")
 
-    # Update the mock test proficiency
-    print("Updating Mock Test Proficiency")
-    update_mock_test_proficiency(cur, student_id, score, correct_answers, incorrect_answers, avg_answering_time, last_response_date)
-    print("Function executed... returning data")
-    return {
-        "score": score,
-        "correct_answers": correct_answers,
-        "incorrect_answers": incorrect_answers,
-        "average_answering_time": avg_answering_time,
-        "last_test_datetime": last_response_date 
-    }, None
+        avg_answering_time = total_answering_time / len(responses) if responses else 0
+        score = correct_answers * 4 - incorrect_answers  # Scoring logic for mock tests
+
+        last_response_date = max(r[6] for r in responses) if responses else None
+        # Update TestHistory table
+        cur.execute("""
+            INSERT INTO TestHistory (TestInstanceID, StudentID, Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds, LastTestAttempt)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (TestInstanceID, StudentID)
+            DO UPDATE SET 
+                Score = EXCLUDED.Score, 
+                QuestionsAttempted = EXCLUDED.QuestionsAttempted,
+                CorrectAnswers = EXCLUDED.CorrectAnswers, 
+                IncorrectAnswers = EXCLUDED.IncorrectAnswers, 
+                AverageAnsweringTimeInSeconds = EXCLUDED.AverageAnsweringTimeInSeconds,
+                LastTestAttempt = EXCLUDED.LastTestAttempt;
+        """, (test_instance_id, student_id, score, len(responses), correct_answers, incorrect_answers, avg_answering_time, last_response_date))
+
+        print("TestHistory table updated")
+
+        # Update proficiency tables
+        print("Updating Proficiency Tables")
+        update_proficiency_tables(cur, student_id, test_instance_id)
+
+        # Calculate and update mock test proficiency
+        print("Updating Mock Test Proficiencies")
+        update_mock_test_proficiency(cur, student_id, score, correct_answers, incorrect_answers, avg_answering_time, last_response_date)
+
+        return {
+            "score": score,
+            "correct_answers": correct_answers,
+            "incorrect_answers": incorrect_answers,
+            "average_answering_time": avg_answering_time,
+            "last_test_datetime": last_response_date 
+        }, None
+
+    except Exception as e:
+        print(f"Error encountered: {e}")
+        raise
+
 
 def evaluate_response(student_response, correct_answer):
     # Utility function to evaluate a response
@@ -333,10 +353,9 @@ def update_practice_test_proficiency(cur, student_id, score, correct_answers, in
     """, (student_id, new_avg_score, new_avg_correct, new_avg_incorrect, new_avg_time, last_test_datetime, new_avg_score, new_avg_correct, new_avg_incorrect, new_avg_time, last_test_datetime))
 
 def update_mock_test_proficiency(cur, student_id, score, correct_answers, incorrect_answers, avg_answering_time, last_test_datetime):
-    # Define the number of recent mock tests to consider and the initial weight
-    num_recent_tests = 5  # Adjust this number as needed
+    num_recent_tests = 5
 
-    # Fetch the most recent mock test data for the student from TestHistory
+    # Fetch recent mock test data from TestHistory
     cur.execute("""
     SELECT TH.Score, TH.CorrectAnswers, TH.IncorrectAnswers, TH.AverageAnsweringTimeInSeconds
     FROM TestHistory TH
@@ -346,41 +365,41 @@ def update_mock_test_proficiency(cur, student_id, score, correct_answers, incorr
     LIMIT %s
     """, (student_id, num_recent_tests))
 
-
     results = cur.fetchall()
 
-    # Initialize weighted sum and total weights
-    weighted_sum_correct = 0
-    weighted_sum_incorrect = 0
-    weighted_sum_time = 0
-    total_weights = 0
+    # Include current test results in the calculation
+    total_correct_answers = correct_answers
+    total_incorrect_answers = incorrect_answers
+    total_answering_time = avg_answering_time
+    total_tests = 1  # Start with the current test
 
-    # Calculate weighted sums
-    for i, (test_score, test_correct, test_incorrect, test_time) in enumerate(results):
-        weight = num_recent_tests - i
-        weighted_sum_correct += test_correct * weight
-        weighted_sum_incorrect += test_incorrect * weight
-        weighted_sum_time += (test_time or 0) * weight  # Handle None values
-        total_weights += weight
+    # Aggregate past test results
+    for test_score, test_correct, test_incorrect, test_time in results:
+        total_correct_answers += test_correct
+        total_incorrect_answers += test_incorrect
+        total_answering_time += test_time
+        total_tests += 1
 
-    # Calculate new weighted averages
-    new_avg_correct = weighted_sum_correct / total_weights if total_weights else correct_answers
-    new_avg_incorrect = weighted_sum_incorrect / total_weights if total_weights else incorrect_answers
-    new_avg_time = weighted_sum_time / total_weights if total_weights else avg_answering_time
+    # Calculate new averages
+    new_avg_correct = total_correct_answers / total_tests
+    new_avg_incorrect = total_incorrect_answers / total_tests
+    new_avg_time = total_answering_time / total_tests
+    new_avg_score = (new_avg_correct * 4) - new_avg_incorrect
 
-    # Calculate new average score
-    new_avg_score = (new_avg_correct * 4) - new_avg_incorrect  # Modify as per your scoring logic
-
-    # Update or insert into MockTestProficiency
+    # Update MockTestProficiency table
     cur.execute("""
         INSERT INTO MockTestProficiency (StudentID, AverageScore, AverageCorrectAnswers, AverageIncorrectAnswers, AverageAnsweringTimeInSeconds, TotalTestsTaken, LastResponseDate)
-        VALUES (%s, %s, %s, %s, %s, 1, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (StudentID)
         DO UPDATE SET 
-            AverageScore = %s, 
-            AverageCorrectAnswers = %s, 
-            AverageIncorrectAnswers = %s, 
-            AverageAnsweringTimeInSeconds = %s, 
+            AverageScore = EXCLUDED.AverageScore, 
+            AverageCorrectAnswers = EXCLUDED.AverageCorrectAnswers, 
+            AverageIncorrectAnswers = EXCLUDED.AverageIncorrectAnswers, 
+            AverageAnsweringTimeInSeconds = EXCLUDED.AverageAnsweringTimeInSeconds, 
             TotalTestsTaken = MockTestProficiency.TotalTestsTaken + 1,
-            LastResponseDate = %s
-    """, (student_id, new_avg_score, new_avg_correct, new_avg_incorrect, new_avg_time, last_test_datetime, new_avg_score, new_avg_correct, new_avg_incorrect, new_avg_time, last_test_datetime))
+            LastResponseDate = EXCLUDED.LastResponseDate
+    """, (student_id, new_avg_score, new_avg_correct, new_avg_incorrect, new_avg_time, total_tests, last_test_datetime))
+
+    print("MockTestProficiency table updated")
+
+
