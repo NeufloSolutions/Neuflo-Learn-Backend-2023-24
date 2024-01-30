@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS Subjects (
 -- 2    Chemistry
 -- 3    Botany
 -- 4    Zoology
-select * from subjects;
 
 --2. Chapters Table
 -- This table lists the chapters for each subject, along with their titles and numbers.
@@ -24,8 +23,6 @@ CREATE TABLE IF NOT EXISTS Chapters (
 -- 1    1    Physical World, Units and Measurements   1
 -- 2    1    Motion in a Straight Line                2
 
-select count(*)from chapters;
-
 --3. Subtopics Table
 -- Contains subtopics for each chapter.
 -- Each subtopic is linked to a chapter through the ChapterID.
@@ -37,7 +34,6 @@ CREATE TABLE IF NOT EXISTS Subtopics (
 -- Example data:
 -- 1    1    Units of Physical Quantities
 -- 2    1    Dimensions of Physical Quantities
-
 
 --4. Questions Table
 -- This table stores individual questions, their options, and answers.
@@ -146,7 +142,8 @@ CREATE TABLE IF NOT EXISTS PracticeTestCompletion (
 -- 'StudentID' refers to the ID of the student taking the test (from an external database).
 CREATE TABLE IF NOT EXISTS NEETMockTests (
     MockTestID INT PRIMARY KEY,
-    StudentID INT NOT NULL
+    StudentID INT NOT null,
+    
 );
 
 --6. NEETMockTestQuestions Table
@@ -182,33 +179,27 @@ ADD CONSTRAINT unique_chapter_subject UNIQUE (ChapterID, SubjectID);
 -- Query to update weights in the MockTestChapterWeightage table
 DO $$
 DECLARE
-    rec record;
+   rec record;
 BEGIN
-    -- Iterating through each chapter and its corresponding subject
-    FOR rec IN SELECT c.ChapterID, c.SubjectID, 
-                      COUNT(q.QuestionID) AS TotalQuestionsPerChapter,
-                      (SELECT COUNT(QuestionID) FROM Questions WHERE ChapterID IN 
-                          (SELECT ChapterID FROM Chapters WHERE SubjectID = c.SubjectID)
-                      ) AS TotalQuestionsPerSubject
-               FROM Chapters c
-               JOIN Questions q ON c.ChapterID = q.ChapterID
-               GROUP BY c.ChapterID, c.SubjectID
-    LOOP
-        -- Calculating and updating weightage for each chapter
-        IF rec.TotalQuestionsPerSubject > 0 THEN
-            INSERT INTO MockTestChapterWeightage (ChapterID, SubjectID, Weightage)
-            VALUES (rec.ChapterID, rec.SubjectID, (rec.TotalQuestionsPerChapter::NUMERIC / rec.TotalQuestionsPerSubject) * 100)
-            ON CONFLICT (ChapterID, SubjectID) DO UPDATE
-            SET Weightage = EXCLUDED.Weightage;
-        END IF;
-    END LOOP;
+   -- Iterating through each chapter and its corresponding subject
+   FOR rec IN SELECT c.ChapterID, c.SubjectID, 
+                     COUNT(q.QuestionID) AS TotalQuestionsPerChapter,
+                     (SELECT COUNT(QuestionID) FROM Questions WHERE ChapterID IN 
+                         (SELECT ChapterID FROM Chapters WHERE SubjectID = c.SubjectID)
+                     ) AS TotalQuestionsPerSubject
+              FROM Chapters c
+              JOIN Questions q ON c.ChapterID = q.ChapterID
+              GROUP BY c.ChapterID, c.SubjectID
+   LOOP
+       -- Calculating and updating weightage for each chapter
+       IF rec.TotalQuestionsPerSubject > 0 THEN
+           INSERT INTO MockTestChapterWeightage (ChapterID, SubjectID, Weightage)
+           VALUES (rec.ChapterID, rec.SubjectID, (rec.TotalQuestionsPerChapter::NUMERIC / rec.TotalQuestionsPerSubject) * 100)
+           ON CONFLICT (ChapterID, SubjectID) DO UPDATE
+           SET Weightage = EXCLUDED.Weightage;
+       END IF;
+   END LOOP;
 END $$;
-
-select * from MockTestChapterWeightage;
-
-SELECT SubjectID, SUM(Weightage) AS TotalWeightage
-FROM MockTestChapterWeightage
-GROUP BY SubjectID;
 
 -- 8. MockTestConfiguration Table
 -- This table defines the structure of the mock test for each subject.
@@ -247,7 +238,18 @@ CREATE TABLE IF NOT EXISTS TestInstances (
     StudentID INT NOT NULL,               -- ID of the student taking the test.
     TestID INT NOT NULL,                  -- ID of the specific mock or practice test.
     TestType VARCHAR(50) NOT NULL,        -- Type of the test (e.g., 'Practice', 'Mock').
-    TestDateTime TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- Date and time when the test was generated.
+    TestDateTime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- Date and time when the test was generated.
+    UNIQUE (TestInstanceID, StudentID)
+);
+
+-- 8.MockTestCompletion
+CREATE TABLE IF NOT EXISTS MockTestCompletion (
+    MockTestID INT NOT NULL,
+    StudentID INT NOT NULL,
+    IsCompleted BOOLEAN DEFAULT FALSE,
+    CompletionDate TIMESTAMP,
+    PRIMARY KEY (MockTestID, StudentID),
+    FOREIGN KEY (MockTestID) REFERENCES NEETMockTests(MockTestID)
 );
 
 ------------------------------------------------------------------------------------------------------------------------------
@@ -325,7 +327,6 @@ CREATE TABLE IF NOT EXISTS SubtopicProficiency (
     PRIMARY KEY (StudentID, SubtopicID)
 );
 
-
 --5. StudentTestTargets Table
 -- Creates a table for storing students' target scores and their progress.
 -- 'StudentID' refers to the ID of the student (from an external database).
@@ -373,33 +374,3 @@ CREATE TABLE IF NOT EXISTS MockTestProficiency (
     LastResponseDate TIMESTAMP,
     PRIMARY KEY (StudentID)
 );
-
---------------------------------------------------------------------------------------------------------------------------------------------
-
-
-select * from PracticeTests;
-select * from PracticeTestSubjects;
-select * from PracticeTestCompletion;
-select * from PracticeTestQuestions; 
-
-
-select * from NEETMockTests;
-select * from NEETMockTestQuestions;
-
-
-select * from TestInstances;
-
-
-select * from StudentResponses;
-
-select * from TestHistory;
-select * from ChapterProficiency;
-select * from SubtopicProficiency;
-
-select * from StudentTestTargets;
-
-select * from PracticeTestProficiency;
-select * from MockTestProficiency;
-
-
-

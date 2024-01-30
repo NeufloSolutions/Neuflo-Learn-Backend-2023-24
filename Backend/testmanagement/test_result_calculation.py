@@ -20,12 +20,32 @@ def calculate_test_results(student_id, test_instance_id):
             else:
                 return None, "Test instance not found"
 
+            # Check if the test is completed based on test type
+            if test_type == "Practice":
+                cur.execute("""
+                    SELECT IsCompleted
+                    FROM PracticeTestCompletion
+                    WHERE PracticeTestID = %s AND StudentID = %s
+                """, (test_id, student_id))
+            elif test_type == "Mock":
+                cur.execute("""
+                    SELECT IsCompleted
+                    FROM MockTestCompletion
+                    WHERE MockTestID = %s AND StudentID = %s
+                """, (test_id, student_id))
+            else:
+                return None, "Invalid test type"
+
+            completion_data = cur.fetchone()
+            if not completion_data or not completion_data[0]:
+                return None, "Test not completed"
+
             # Call the appropriate function based on test type
             if test_type == "Practice":
-                print("Entered Practice Test Calcuation Function")
+                print("Entered Practice Test Calculation Function")
                 return calculate_practice_test_results(cur, student_id, test_instance_id, test_id)
             elif test_type == "Mock":
-                print("Entered Mock Test Calcuation Function")
+                print("Entered Mock Test Calculation Function")
                 return calculate_mock_test_results(cur, student_id, test_instance_id, test_id)
 
     except Exception as e:
@@ -37,47 +57,39 @@ def calculate_test_results(student_id, test_instance_id):
             conn.commit()
             release_pg_connection(pg_connection_pool, conn)
 
-def calculate_practice_test_results(cur, student_id, test_instance_id, test_id):
-    # Query to get the student responses and the correct answers for the practice test instance
+
+def calculate_practice_test_results(cur, student_id, test_instance_id, practice_test_id):
+    # Adjusted query to join the tables based on your schema
     cur.execute("""
-        SELECT SR.StudentResponse, Q.Answer, SR.AnsweringTimeInSeconds, SR.ResponseDate
+        SELECT SR.QuestionID, SR.StudentResponse, Q.Answer, CH.SubjectID, SR.AnsweringTimeInSeconds, SR.ResponseDate
         FROM StudentResponses SR
-        JOIN PracticeTestQuestions PTQ ON SR.QuestionID = PTQ.QuestionID
-        JOIN Questions Q ON PTQ.QuestionID = Q.QuestionID
-        WHERE SR.StudentID = %s AND SR.TestInstanceID = %s
-    """, (student_id, test_instance_id))
-    print("Query Going to Execute!")
+        JOIN Questions Q ON SR.QuestionID = Q.QuestionID
+        JOIN Chapters CH ON Q.ChapterID = CH.ChapterID
+        JOIN PracticeTestQuestions PTQ ON Q.QuestionID = PTQ.QuestionID
+        JOIN PracticeTestSubjects PTS ON PTQ.PracticeTestSubjectID = PTS.PracticeTestSubjectID
+        JOIN PracticeTests PT ON PTS.PracticeTestID = PT.PracticeTestID
+        WHERE SR.StudentID = %s AND PT.PracticeTestID = %s;
+    """, (student_id, practice_test_id))
     responses = cur.fetchall()
-    print("Query Got Executed!")
-    print(f"Length of Responses: {len(responses)}")
+
+    if not responses:
+        return None, "No responses found for given student and test instance"
+
     correct_answers = 0
     incorrect_answers = 0
     total_answering_time = 0
     last_test_datetime = None
 
-    for student_response, answer, answering_time, response_date in responses:
-        student_response = student_response.lower() if student_response else ''
-        answer = answer.lower() if answer else ''
-
-        if answer == 'na':
-            correct_answers += 1
-        elif ',' in answer:
-            if student_response in [choice.strip() for choice in answer.split(',')]:
-                correct_answers += 1
-            else:
-                incorrect_answers += 1
-        else:
-            if student_response == answer:
-                correct_answers += 1
-            else:
-                incorrect_answers += 1
+    for question_id, student_response, answer, subject_id, answering_time, response_date in responses:
+        correct, incorrect = evaluate_response(student_response, answer)
+        correct_answers += correct
+        incorrect_answers += incorrect
 
         total_answering_time += answering_time if answering_time else 0
-        if last_test_datetime is None or response_date > last_test_datetime:
-            last_test_datetime = response_date
+        last_test_datetime = max(last_test_datetime, response_date) if last_test_datetime else response_date
 
-    avg_answering_time = total_answering_time / len(responses) if responses else None
     questions_attempted = len(responses)
+    avg_answering_time = total_answering_time / questions_attempted if questions_attempted else None
     score = correct_answers * 4 - incorrect_answers  # Scoring logic for practice tests
 
     # Insert into TestHistory table
@@ -372,7 +384,7 @@ def update_mock_test_proficiency(cur, student_id, score, correct_answers, incorr
     total_incorrect_answers = incorrect_answers
     total_answering_time = avg_answering_time
     total_tests = 1  # Start with the current test
-
+    
     # Aggregate past test results
     for test_score, test_correct, test_incorrect, test_time in results:
         total_correct_answers += test_correct

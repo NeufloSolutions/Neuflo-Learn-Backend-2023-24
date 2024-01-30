@@ -184,7 +184,7 @@ def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers
                         StudentResponse = EXCLUDED.StudentResponse,
                         AnsweringTimeInSeconds = EXCLUDED.AnsweringTimeInSeconds,
                         ResponseDate = CURRENT_TIMESTAMP
-                """, (practice_test_id, student_id, question_id, student_response, answering_time))
+                """, (testInstanceID, student_id, question_id, student_response, answering_time))
 
             # Mark subject test as completed
             cur.execute("""
