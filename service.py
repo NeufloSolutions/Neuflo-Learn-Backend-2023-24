@@ -245,15 +245,15 @@ async def clear_cache(student_id: int):
         # If any exception occurs during cache clearing, an HTTPException is raised.
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/reset-database/{student_id}")
-async def reset_database(student_id: int):
+@app.get("/reset-database/")
+async def reset_database():
     # This endpoint resets the database for the entire application and clears the cache for a specific student.
     try:
         # First, clear the cache for the specific student
         clear_student_cache()
         # Then, reset the database by clearing all specified tables
         reset_result = delete_all_test_data()
-        return {"message": f"Database reset successfully. Cache cleared for student {student_id}. {reset_result}"}
+        return {"message": f"Database reset successfully"}
     except Exception as e:
         # If any exception occurs, raise an HTTPException
         raise HTTPException(status_code=500, detail=str(e))

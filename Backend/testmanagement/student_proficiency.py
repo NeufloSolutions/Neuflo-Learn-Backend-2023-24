@@ -19,11 +19,23 @@ def get_student_test_history(student_id):
                 WHERE TI.StudentID = %s
             """, (student_id,))
             history = cur.fetchall()
-            return history, None
+            formatted_history = [{
+                "test_instance_id": row[0],
+                "test_type": row[1],
+                "test_id": row[2],
+                "score": row[3],
+                "questions_attempted": row[4],
+                "correct_answers": row[5],
+                "incorrect_answers": row[6],
+                "average_answering_time_in_seconds": row[7],
+                "test_date_time": row[8]
+            } for row in history]
+            return formatted_history, None
     except Exception as e:
         return None, str(e)
     finally:
         release_pg_connection(pg_connection_pool, conn)
+
 
 def get_chapter_proficiency(student_id):
     """

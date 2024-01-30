@@ -44,17 +44,16 @@ def delete_all_test_data():
             # List of tables to be cleared
             tables_to_clear = [
                 "PracticeTests", "PracticeTestSubjects", "PracticeTestQuestions",
-                "PracticeTestCompletion", "NEETMockTests", "NEETMockTestQuestions",
-                "MockTestChapterWeightage", "MockTestConfiguration", "StudentMockTestHistory",
-                "TestInstances", "StudentResponses", "TestHistory", "ChapterProficiency",
+                "PracticeTestCompletion", "NEETMockTests", "NEETMockTestQuestions", "StudentMockTestHistory",
+                "testinstances", "StudentResponses", "TestHistory", "ChapterProficiency",
                 "SubtopicProficiency", "StudentTestTargets", "PracticeTestProficiency",
                 "MockTestProficiency"
             ]
 
             # Executing delete statements for each table
             for table in tables_to_clear:
-                cur.execute(f"DELETE FROM {table};")
-                print(f"Cleared data from {table}")
+                cur.execute(f"TRUNCATE {table} CASCADE")
+            print(f"Cleared data from all tables")
 
             # Commit the changes
             conn.commit()
