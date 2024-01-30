@@ -1,7 +1,7 @@
 # For more information, please refer to https://aka.ms/vscode-docker-python
 FROM python:3.11.4
 
-EXPOSE 4567
+EXPOSE 5912
 
 # Keeps Python from generating .pyc files in the container
 ENV PYTHONDONTWRITEBYTECODE=1
