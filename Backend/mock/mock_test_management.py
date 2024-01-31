@@ -200,7 +200,7 @@ def get_chapter_weightage(subject_id):
     return weightages
 
 
-def get_questions_for_mock_test_instance(mock_test_id):
+def get_questions_for_mock_test_instance(test_instance_id, student_id):
     """
     Retrieves all question IDs for a given mock test instance categorized by subject and section.
     
@@ -212,6 +212,17 @@ def get_questions_for_mock_test_instance(mock_test_id):
     questions_dict = {}
 
     try:
+
+        # Retrieve MockTestID from TestInstances
+        cursor.execute("""
+            SELECT TestID FROM TestInstances
+            WHERE TestInstanceID = %s AND StudentID = %s
+        """, (test_instance_id, student_id))
+        mock_test_result = cursor.fetchone()
+        if mock_test_result is None:
+            return None, "Mock test not found"
+        mock_test_id = mock_test_result[0]
+
         query = """
         SELECT s.SubjectName, q.Section, q.QuestionID 
         FROM NEETMockTestQuestions nmtq
