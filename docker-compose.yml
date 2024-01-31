@@ -2,12 +2,8 @@ version: '3.4'
 
 services:
   web:
-    image: new
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5912:5912"
-
-  redis:
-    image: "redis:latest"
+      - "5945:5945"

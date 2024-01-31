@@ -1,33 +1,22 @@
-# For more information, please refer to https://aka.ms/vscode-docker-python
+# Use an official Python runtime as a base image
 FROM python:3.11.4
 
-EXPOSE 5912
+# Set environment variables to reduce Python bytecode generation and buffer flushing
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-# Keeps Python from generating .pyc files in the container
-ENV PYTHONDONTWRITEBYTECODE=1
-
-# Turns off buffering for easier container logging
-ENV PYTHONUNBUFFERED=1
-
-# Install pip requirements
-COPY requirements.txt .
-RUN python -m pip install -r requirements.txt
-
-# Install additional packages needed for Redis
-RUN apt-get update && \
-    apt-get install -y lsb-release curl gpg && \
-    curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list && \
-    apt-get update && \
-    apt-get install -y redis redis-tools && \
-    rm -rf /var/lib/apt/lists/*
-
+# Set the working directory in the container
 WORKDIR /app
-COPY . /app
 
-# Copy and make the start script executable
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+# Install Python dependencies
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Set the start script as the entry point
-CMD ["/start.sh"]
+# Copy the current directory contents into the container at /app
+COPY . /app/
+
+# Expose the port the app runs on
+EXPOSE 5945
+
+# Define the command to run your app
+CMD ["gunicorn", "--bind", "0.0.0.0:5945", "-k", "uvicorn.workers.UvicornWorker", "service:app"]
