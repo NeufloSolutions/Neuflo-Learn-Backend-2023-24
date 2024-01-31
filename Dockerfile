@@ -12,15 +12,11 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# # Install Redis
-# RUN apt-get update && \
-#     apt-get install -y redis-server
-
 # Copy the current directory contents into the container at /app
 COPY . /app/
 
 # Expose the port the app runs on
-EXPOSE 5912
+EXPOSE 5945
 
 # Define the command to run your app
 CMD ["gunicorn", "--bind", "0.0.0.0:5945", "-k", "uvicorn.workers.UvicornWorker", "service:app"]

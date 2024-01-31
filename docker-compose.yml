@@ -2,7 +2,6 @@ version: '3.4'
 
 services:
   web:
-    image: new
     build:
       context: .
       dockerfile: Dockerfile
