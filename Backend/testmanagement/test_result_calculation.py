@@ -14,7 +14,7 @@ def calculate_test_results(student_id, test_instance_id):
                 FROM TestInstances
                 WHERE TestInstanceID = %s AND StudentID = %s
             """, (test_instance_id, student_id))
-            test_instance_data = cur.fetchone()
+            test_instance_data = cur.fetchone() 
             if test_instance_data:
                 test_type, test_id = test_instance_data
             else:

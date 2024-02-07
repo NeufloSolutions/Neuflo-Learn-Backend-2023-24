@@ -11,48 +11,41 @@ def generate_mock_test(student_id):
     :param student_id: ID of the student.
     :return: Dictionary with message and testInstanceID.
     """
-    subject_ids = [1, 2, 3, 4]
-    mock_test_questions = []
+    conn = create_pg_connection(pg_connection_pool)
+    if not conn:
+        return {"message": "Database connection failed"}
 
-    for subject_id in subject_ids:
-        questions_a = select_questions_for_subject(subject_id, student_id, 'A')
-        questions_b = select_questions_for_subject(subject_id, student_id, 'B')
-        mock_test_questions.extend(questions_a + questions_b)
-
-    print(f"Total questions selected for the mock test: {len(mock_test_questions)}")
-
-    success = False
-    while not success:
-        mock_test_id = random.randint(1000, 99999)
-        test_instance_id = random.randint(1000, 99999)
-        success = create_test_instance(student_id, mock_test_id, test_instance_id, mock_test_questions)
-
-    return {"message": "Mock test generated successfully", "testInstanceID": test_instance_id}
-
-def get_chapter_ids_for_questions(question_ids):
-    """
-    Retrieves the chapter IDs for a given list of question IDs.
-    
-    :param question_ids: List of question IDs.
-    :return: Dictionary of question IDs to their corresponding chapter IDs.
-    """
-    if not question_ids:
-        return {}
-
-    question_chapter_mapping = {}
-    connection = create_pg_connection(pg_connection_pool)
-    cursor = connection.cursor()
     try:
-        format_strings = ','.join(['%s'] * len(question_ids))
-        cursor.execute(f"SELECT QuestionID, ChapterID FROM Questions WHERE QuestionID IN ({format_strings})", tuple(question_ids))
-        for question_id, chapter_id in cursor.fetchall():
-            question_chapter_mapping[question_id] = chapter_id
-    except Exception as e:
-        print(f"Error fetching chapter IDs: {e}")
-    finally:
-        release_pg_connection(pg_connection_pool, connection)
-    return question_chapter_mapping
+        with conn.cursor() as cur:
+            subject_ids = [1, 2, 3, 4]
+            mock_test_questions = []
 
+            for subject_id in subject_ids:
+                questions_a = select_questions_for_subject(subject_id, student_id, 'A')
+                questions_b = select_questions_for_subject(subject_id, student_id, 'B')
+                mock_test_questions.extend(questions_a + questions_b)
+
+            print(f"Total questions selected for the mock test: {len(mock_test_questions)}")
+
+            success = False
+            while not success:
+                mock_test_id = random.randint(1000, 99999)
+                test_instance_id = random.randint(1000, 99999)
+                success = create_test_instance(student_id, mock_test_id, test_instance_id, mock_test_questions)
+                # Insert a default completion status for the new mock test
+                if success:
+                    cur.execute("""
+                        INSERT INTO MockTestCompletion (MockTestID, StudentID, IsCompleted)
+                        VALUES (%s, %s, FALSE)
+                    """, (mock_test_id, student_id,))
+                    conn.commit()
+
+            return {"message": "Mock test generated successfully", "testInstanceID": test_instance_id}
+    except Exception as e:
+        conn.rollback()
+        return {"message": f"An error occurred: {str(e)}"}
+    finally:
+        release_pg_connection(pg_connection_pool, conn)
 
 def select_questions_for_subject(subject_id, student_id, section):
     """
@@ -64,7 +57,7 @@ def select_questions_for_subject(subject_id, student_id, section):
     :param section: Section of the test ('A' or 'B').
     :return: List of selected question IDs with their section.
     """
-    used_questions = set(get_cached_questions(student_id))
+    used_questions = set(get_cached_questions(student_id,"mock"))
     chapters_weightage = get_chapter_weightage(subject_id)
     all_questions = get_questions_for_subject(subject_id, used_questions)
 
@@ -80,7 +73,7 @@ def select_questions_for_subject(subject_id, student_id, section):
         selected_questions = list(set(selected_questions))  # Remove any new duplicates
 
     # Update the cache with the newly selected questions
-    cache_questions(student_id, list(used_questions | set(selected_questions)))
+    cache_questions(student_id,"mock", list(used_questions | set(selected_questions)))
 
     # Assign section label and return
     return [(qid, section) for qid in selected_questions[:total_questions_required]]
@@ -157,8 +150,11 @@ def create_test_instance(student_id, mock_test_id, test_instance_id, question_id
             raise ValueError("Invalid format in question_ids_with_sections. Expected list of tuples (QuestionID, Section).")
         questions_data = [(mock_test_id, qid, sec) for qid, sec in question_ids_with_sections]
 
-        # Bulk insert selected questions into NEETMockTestQuestions with section info
-        insert_query = "INSERT INTO NEETMockTestQuestions (MockTestID, QuestionID, Section) VALUES %s"
+        # Bulk insert selected questions into NEETMockTestQuestions with section info, ignoring duplicates
+        insert_query = """
+        INSERT INTO NEETMockTestQuestions (MockTestID, QuestionID, Section) VALUES %s
+        ON CONFLICT (MockTestID, QuestionID) DO NOTHING
+        """
         psycopg2.extras.execute_values(cursor, insert_query, questions_data)
 
         # Insert into TestInstances
@@ -173,6 +169,30 @@ def create_test_instance(student_id, mock_test_id, test_instance_id, question_id
         return False
     finally:
         release_pg_connection(pg_connection_pool, connection)
+
+def get_chapter_ids_for_questions(question_ids):
+    """
+    Retrieves the chapter IDs for a given list of question IDs.
+    
+    :param question_ids: List of question IDs.
+    :return: Dictionary of question IDs to their corresponding chapter IDs.
+    """
+    if not question_ids:
+        return {}
+
+    question_chapter_mapping = {}
+    connection = create_pg_connection(pg_connection_pool)
+    cursor = connection.cursor()
+    try:
+        format_strings = ','.join(['%s'] * len(question_ids))
+        cursor.execute(f"SELECT QuestionID, ChapterID FROM Questions WHERE QuestionID IN ({format_strings})", tuple(question_ids))
+        for question_id, chapter_id in cursor.fetchall():
+            question_chapter_mapping[question_id] = chapter_id
+    except Exception as e:
+        print(f"Error fetching chapter IDs: {e}")
+    finally:
+        release_pg_connection(pg_connection_pool, connection)
+    return question_chapter_mapping
 
 
 def get_chapter_weightage(subject_id):
