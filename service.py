@@ -4,12 +4,13 @@ from pydantic import BaseModel
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 from Backend.dbconfig.cache_management import clear_student_cache, delete_all_test_data  
 from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
-from Backend.testmanagement.question_management import get_question_details, get_answer, list_tests_for_student
+from Backend.testmanagement.question_management import get_question_details, get_answer, list_tests_for_student,get_chapter_names, get_test_completion
 from Backend.testmanagement.test_result_calculation import calculate_test_results
 from Backend.testmanagement.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency
 from Backend.practice.practice_answer_retrieval import get_practice_test_answers_only
 from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
 from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only
+from Backend.customtest.custom_test_management import fetch_questions, format_questions, generate_custom_test
 
 app = FastAPI()
 
@@ -204,10 +205,35 @@ def api_submit_mock_test_answers(answers_data: MockTestAnswers):
         return {"error": error}
     return result
 
+class CustomTestRequest(BaseModel):
+    chapter_ids: List[int]
+    total_questions: int
 
-
+@app.post("/generate-custom-test/")
+async def generate_custom_test_endpoint(request: CustomTestRequest):
+    response, error = generate_custom_test(request.chapter_ids, request.total_questions)
+    if error:
+        raise HTTPException(status_code=500, detail=error)
+    return response
 
 ######################################################################################################
+@app.get("/check-test-completion")
+def api_get_test_completion(instanceId: int = Query(...), studentId: int = Query(...)):
+    """
+    Endpoint to check if a given test instance is completed or not.
+
+    - Query Parameter:
+      - instanceId: The unique identifier of the test instance.
+
+    - Returns:
+      On success: A JSON object containing the test ID, test type, and completion status.
+      On failure: An error message.
+    """
+    completion_status, error = get_test_completion(instanceId, studentId)
+    if error:
+        return {"error": error}
+    return {"completion_status": completion_status}
+
 
 @app.get("/student-test-history")
 def api_get_student_test_history(student_id: int = Query(...)):
@@ -261,6 +287,16 @@ def api_get_answer(question_id: int = Query(...)):
         # If there is an error in retrieving the answer, an HTTPException is raised.
         raise HTTPException(status_code=500, detail=error)
     return result
+
+@app.get("/get-chapter-names/")
+async def api_get_chapter_names(subjectID: int = Query(...)):
+    """
+    Endpoint to retrieve chapter names based on the subject ID.
+    """
+    chapter_names, error = get_chapter_names(subjectID)
+    if error:
+        raise HTTPException(status_code=500, detail=error)
+    return {"chapter_names": chapter_names}
     
 @app.post("/clear-cache")
 async def clear_cache(student_id: int = Query(...)):
