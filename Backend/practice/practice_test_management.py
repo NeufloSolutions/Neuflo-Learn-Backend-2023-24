@@ -166,7 +166,7 @@ def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers
     subject_id = subject_mapping.get(subject_ID)
 
     if subject_id is None:
-        return None, "Invalid subject name"
+        return "Invalid subject ID"
 
     try:
         with conn.cursor() as cur:
@@ -177,7 +177,7 @@ def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers
             """, (testInstanceID,))
             practice_test_result = cur.fetchone()
             if practice_test_result is None:
-                return None, "Practice test not found"
+                return "Practice test not found"
 
             practice_test_id = practice_test_result[0]
 
@@ -188,24 +188,38 @@ def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers
             """, (practice_test_id, subject_id))
             subject_test_result = cur.fetchone()
             if subject_test_result is None:
-                return None, "Subject test not found"
+                return "Subject test not found"
 
             subject_test_id = subject_test_result[0]
 
-            # Record each student response using TestInstanceID (test_id)
             for question_id, response in answers.items():
                 answering_time = response.get('time', 60)
                 student_response = response.get('answer', '')
 
+                # Retrieve the correct answer for the question
                 cur.execute("""
-                    INSERT INTO StudentResponses (TestInstanceID, StudentID, QuestionID, StudentResponse, AnsweringTimeInSeconds)
-                    VALUES (%s, %s, %s, %s, %s)
+                    SELECT Answer FROM Questions
+                    WHERE QuestionID = %s
+                """, (question_id,))
+                correct_answer_result = cur.fetchone()
+                if correct_answer_result is None:
+                    continue  # Skip if question not found
+                correct_answer = correct_answer_result[0]
+
+                # Determine if the answer is correct
+                answer_correct = (student_response.lower() == correct_answer.lower())
+
+                # Record the student response along with correctness
+                cur.execute("""
+                    INSERT INTO StudentResponses (TestInstanceID, StudentID, QuestionID, StudentResponse, AnsweringTimeInSeconds, AnswerCorrect)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (TestInstanceID, StudentID, QuestionID)
                     DO UPDATE SET 
                         StudentResponse = EXCLUDED.StudentResponse,
                         AnsweringTimeInSeconds = EXCLUDED.AnsweringTimeInSeconds,
+                        AnswerCorrect = EXCLUDED.AnswerCorrect,
                         ResponseDate = CURRENT_TIMESTAMP
-                """, (testInstanceID, student_id, question_id, student_response, answering_time))
+                """, (testInstanceID, student_id, question_id, student_response, answering_time, answer_correct))
 
             # Mark subject test as completed
             cur.execute("""
@@ -214,14 +228,14 @@ def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers
                 WHERE PracticeTestSubjectID = %s
             """, (subject_test_id,))
 
-            # Check if all subject tests are completed
+            # Check if all subject tests are completed for the practice test
             cur.execute("""
                 SELECT COUNT(*) FROM PracticeTestSubjects
-                WHERE PracticeTestID= %s AND IsCompleted = FALSE
-                        """, (practice_test_id,))
+                WHERE PracticeTestID = %s AND IsCompleted = FALSE
+            """, (practice_test_id,))
             remaining_tests = cur.fetchone()[0]
             if remaining_tests == 0:
-                # Mark full practice test as completed
+                # Mark the full practice test as completed
                 cur.execute("""
                     INSERT INTO PracticeTestCompletion (PracticeTestID, StudentID, IsCompleted, CompletionDate)
                     VALUES (%s, %s, TRUE, CURRENT_TIMESTAMP)
@@ -232,9 +246,11 @@ def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers
                 """, (practice_test_id, student_id))
 
             conn.commit()
-            return {"message": "Submission successful"}
+            return {"message": "Answers submitted successfully."}
     except Exception as e:
         conn.rollback()
-        return None, str(e)
+        return "Error submitting answers: " + str(e)
     finally:
-        release_pg_connection(pg_connection_pool, conn)
+        if conn:
+            release_pg_connection(pg_connection_pool, conn)
+
