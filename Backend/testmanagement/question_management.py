@@ -199,3 +199,25 @@ def get_test_completion(instanceId, studentId):
         return None, str(e)
     finally:
         release_pg_connection(pg_connection_pool, conn)
+
+
+def get_unique_student_ids():
+    """
+    Retrieves a list of all unique StudentID's from the database.
+    """
+    conn = create_pg_connection(pg_connection_pool)
+    if not conn:
+        return None, "Database connection failed"
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT StudentID FROM TestInstances")
+            # If you're targeting a different table, replace TestInstances with your table name
+            student_ids = cur.fetchall()
+            # Extract StudentID from each row into a list
+            unique_student_ids = [id[0] for id in student_ids]
+            return unique_student_ids, None
+    except Exception as e:
+        return None, "Error retrieving unique student IDs: " + str(e)
+    finally:
+        release_pg_connection(pg_connection_pool, conn)

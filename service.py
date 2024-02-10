@@ -4,9 +4,9 @@ from pydantic import BaseModel
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 from Backend.dbconfig.cache_management import clear_student_cache, delete_all_test_data  
 from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
-from Backend.testmanagement.question_management import get_question_details, get_answer, list_tests_for_student,get_chapter_names, get_test_completion
+from Backend.testmanagement.question_management import get_unique_student_ids, get_question_details, get_answer, list_tests_for_student,get_chapter_names, get_test_completion
 from Backend.testmanagement.test_result_calculation import calculate_test_results, calculate_section_practice_test_results
-from Backend.testmanagement.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency
+from Backend.testmanagement.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency, calculate_chapterwise_report
 from Backend.practice.practice_answer_retrieval import get_practice_test_answers_only
 from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
 from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only
@@ -17,6 +17,13 @@ app = FastAPI()
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the NEET Exam Preparation API"}
+
+@app.get("/unique-student-ids/") 
+async def api_get_unique_student_ids():
+    student_ids, error = get_unique_student_ids()
+    if error:
+        raise HTTPException(status_code=500, detail=error)
+    return {"student_ids": student_ids}
 
 @app.get("/list-tests")
 def api_list_tests_for_student(student_id: int = Query(...)):
