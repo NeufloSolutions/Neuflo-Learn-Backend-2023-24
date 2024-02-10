@@ -5,7 +5,7 @@ from Backend.dbconfig.db_connection import create_pg_connection, release_pg_conn
 from Backend.dbconfig.cache_management import clear_student_cache, delete_all_test_data  
 from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
 from Backend.testmanagement.question_management import get_question_details, get_answer, list_tests_for_student,get_chapter_names, get_test_completion
-from Backend.testmanagement.test_result_calculation import calculate_test_results
+from Backend.testmanagement.test_result_calculation import calculate_test_results, calculate_section_practice_test_results
 from Backend.testmanagement.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency
 from Backend.practice.practice_answer_retrieval import get_practice_test_answers_only
 from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
@@ -100,6 +100,21 @@ def api_submit_practice_test_answers(answers_data: PracticeTestAnswers):
     if result is None or isinstance(result, str):
         return {"error": result or "An error occurred"}
     return result
+
+class SectionTestResultsInput(BaseModel):
+    student_id: int
+    test_instance_id: int
+    subject_code: int
+
+@app.post("/calculate-practice-test-results-subjectwise/")
+async def calculate_section_test_results(input_data: SectionTestResultsInput):
+    result, error = calculate_section_practice_test_results(
+        input_data.student_id, input_data.test_instance_id, input_data.subject_code
+    )
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return result
+
 
 class TestResultsRequest(BaseModel):
     student_id: int
