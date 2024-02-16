@@ -221,3 +221,31 @@ def get_unique_student_ids():
         return None, "Error retrieving unique student IDs: " + str(e)
     finally:
         release_pg_connection(pg_connection_pool, conn)
+
+
+def add_question_issue(question_id: int, issue_comment: str):
+    """
+    Adds a new issue for a question to the QuestionIssues table.
+
+    :param question_id: The ID of the question with an issue.
+    :param issue_comment: A comment describing the issue.
+    :return: A message indicating success or failure.
+    """
+    conn = None
+    try:
+        conn = create_pg_connection(pg_connection_pool)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO QuestionIssues (QuestionID, IssueComment)
+            VALUES (%s, %s)
+            """,
+            (question_id, issue_comment)
+        )
+        conn.commit()
+        return "Issue added successfully."
+    except Exception as e:
+        return f"An error occurred: {str(e)}"
+    finally:
+        if conn:
+            release_pg_connection(pg_connection_pool, conn)

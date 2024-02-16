@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, Header
+from fastapi import FastAPI, HTTPException, Query, Header, Body
 from typing import List, Dict, Union, Any
 from pydantic import BaseModel
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
@@ -11,6 +11,8 @@ from Backend.practice.practice_answer_retrieval import get_practice_test_answers
 from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
 from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only
 from Backend.customtest.custom_test_management import fetch_questions, format_questions, generate_custom_test
+from Backend.chatsystem.chatbot import prepare_and_chat_with_neet_instructor
+from Backend.testmanagement.question_management import add_question_issue
 
 app = FastAPI()
 
@@ -239,6 +241,19 @@ async def generate_custom_test_endpoint(request: CustomTestRequest):
     return response
 
 ######################################################################################################
+
+@app.post("/chat/")
+async def chat_endpoint(new_question: str = Body(..., embed=True), past_history: list = Body(default=[], embed=True)):
+    """
+    FastAPI endpoint to interact with a NEET instructor via OpenAI's ChatGPT model.
+    Expects a JSON body with a new question and optional past history.
+    """
+    try:
+        response = prepare_and_chat_with_neet_instructor(new_question, past_history)
+        return {"response": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/check-test-completion")
 def api_get_test_completion(instanceId: int = Query(...), studentId: int = Query(...)):
     """
@@ -309,6 +324,19 @@ def api_get_answer(question_id: int = Query(...)):
         # If there is an error in retrieving the answer, an HTTPException is raised.
         raise HTTPException(status_code=500, detail=error)
     return result
+
+class QuestionIssue(BaseModel):
+    question_id: int
+    issue_comment: str
+
+@app.post("/report-question-issue")
+def report_question_issue(issue: QuestionIssue):
+    result = add_question_issue(issue.question_id, issue.issue_comment)
+    if "successfully" in result:
+        return {"message": result}
+    else:
+        raise HTTPException(status_code=500, detail=result)
+
 
 @app.get("/get-chapter-names/")
 async def api_get_chapter_names(subjectID: int = Query(...)):
