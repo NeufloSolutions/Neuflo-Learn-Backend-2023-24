@@ -199,3 +199,53 @@ def get_test_completion(instanceId, studentId):
         return None, str(e)
     finally:
         release_pg_connection(pg_connection_pool, conn)
+
+
+def get_unique_student_ids():
+    """
+    Retrieves a list of all unique StudentID's from the database.
+    """
+    conn = create_pg_connection(pg_connection_pool)
+    if not conn:
+        return None, "Database connection failed"
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT StudentID FROM TestInstances")
+            # If you're targeting a different table, replace TestInstances with your table name
+            student_ids = cur.fetchall()
+            # Extract StudentID from each row into a list
+            unique_student_ids = [id[0] for id in student_ids]
+            return unique_student_ids, None
+    except Exception as e:
+        return None, "Error retrieving unique student IDs: " + str(e)
+    finally:
+        release_pg_connection(pg_connection_pool, conn)
+
+
+def add_question_issue(question_id: int, issue_comment: str):
+    """
+    Adds a new issue for a question to the QuestionIssues table.
+
+    :param question_id: The ID of the question with an issue.
+    :param issue_comment: A comment describing the issue.
+    :return: A message indicating success or failure.
+    """
+    conn = None
+    try:
+        conn = create_pg_connection(pg_connection_pool)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO QuestionIssues (QuestionID, IssueComment)
+            VALUES (%s, %s)
+            """,
+            (question_id, issue_comment)
+        )
+        conn.commit()
+        return "Issue added successfully."
+    except Exception as e:
+        return f"An error occurred: {str(e)}"
+    finally:
+        if conn:
+            release_pg_connection(pg_connection_pool, conn)

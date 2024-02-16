@@ -248,6 +248,14 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
                 # Assuming 'na' or an empty string indicates a skipped question
                 skipped_questions.append(question_id)
 
+            # Update the AnswerCorrect column for each response
+            answer_correct = correct > 0
+            cur.execute("""
+                UPDATE StudentResponses
+                SET AnswerCorrect = %s
+                WHERE StudentID = %s AND QuestionID = %s AND TestInstanceID = %s
+            """, (answer_correct, student_id, question_id, test_instance_id))
+
             total_answering_time += answering_time if answering_time else 0
 
         # Sorting the question lists
@@ -293,7 +301,6 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
     except Exception as e:
         print(f"Error encountered: {e}")
         raise
-
 
 
 def evaluate_response(student_response, correct_answer):
