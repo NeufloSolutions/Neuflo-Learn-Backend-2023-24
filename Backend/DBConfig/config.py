@@ -7,8 +7,8 @@ DB_CONFIG = {
     "port": "5432"
 }
 
-REDIS_CONFIG = {
-    "azure_redis_host": "neuflolearnrediscache.redis.cache.windows.net",
-    "azure_redis_port": 6380,
-    "azure_redis_password": "xT8WLg2cOiNM3lFCICOipXWPnJNFP5ecKAzCaGrrgPE="
-}
+# REDIS_CONFIG = {
+#     "azure_redis_host": "neuflolearnrediscache.redis.cache.windows.net",
+#     "azure_redis_port": 6380,
+#     "azure_redis_password": "xT8WLg2cOiNM3lFCICOipXWPnJNFP5ecKAzCaGrrgPE="
+# }

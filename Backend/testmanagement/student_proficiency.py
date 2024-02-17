@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def get_student_test_history(student_id):
@@ -179,5 +180,40 @@ def get_subtopic_proficiency(student_id):
             return proficiency, None
     except Exception as e:
         return None, str(e)
+    finally:
+        release_pg_connection(pg_connection_pool, conn)
+
+def set_student_target_score(student_id, target_score):
+    """
+    Adds or updates a student's target score in the StudentTestTargets table.
+    If the student already exists, it updates their TargetScore, SetDate, and sets FinishedFirstWeek to True.
+
+    :param student_id: ID of the student.
+    :param target_score: The target score to be set for the student.
+    """
+    conn = create_pg_connection(pg_connection_pool)
+    if conn is None:
+        print("Failed to obtain database connection.")
+        return False
+
+    try:
+        with conn.cursor() as cur:
+            # SQL statement to insert or update student's target score
+            sql = """
+            INSERT INTO StudentTestTargets (StudentID, TargetScore, FinishedFirstWeek, SetDate)
+            VALUES (%s, %s, TRUE, CURRENT_TIMESTAMP)
+            ON CONFLICT (StudentID) DO UPDATE
+            SET TargetScore = EXCLUDED.TargetScore,
+                FinishedFirstWeek = EXCLUDED.FinishedFirstWeek,
+                SetDate = EXCLUDED.SetDate;
+            """
+            cur.execute(sql, (student_id, target_score))
+            conn.commit()
+            print("Student's target score has been set successfully.")
+            return True
+    except Exception as e:
+        print(f"An error occurred while setting the student's target score: {e}")
+        conn.rollback()
+        return False
     finally:
         release_pg_connection(pg_connection_pool, conn)

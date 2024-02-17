@@ -1,5 +1,5 @@
 import json
-from Backend.dbconfig.db_connection import redis_client
+# from Backend.dbconfig.db_connection import redis_client
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 # def get_cached_questions(student_id):

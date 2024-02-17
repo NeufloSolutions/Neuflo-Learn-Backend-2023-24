@@ -6,11 +6,11 @@ from Backend.dbconfig.cache_management import clear_student_cache, delete_all_te
 from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
 from Backend.testmanagement.question_management import get_unique_student_ids, get_question_details, get_answer, list_tests_for_student,get_chapter_names, get_test_completion
 from Backend.testmanagement.test_result_calculation import calculate_test_results, calculate_section_practice_test_results
-from Backend.testmanagement.student_proficiency import get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency, calculate_chapterwise_report
+from Backend.testmanagement.student_proficiency import set_student_target_score, get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency, calculate_chapterwise_report
 from Backend.practice.practice_answer_retrieval import get_practice_test_answers_only
 from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
 from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only
-from Backend.customtest.custom_test_management import fetch_questions, format_questions, generate_custom_test
+from Backend.customtest.custom_test_management import generate_custom_test
 from Backend.chatsystem.chatbot import prepare_and_chat_with_neet_instructor
 from Backend.testmanagement.question_management import add_question_issue
 
@@ -337,6 +337,19 @@ def report_question_issue(issue: QuestionIssue):
     else:
         raise HTTPException(status_code=500, detail=result)
 
+class TargetScoreRequest(BaseModel):
+    student_id: int
+    target_score: int
+
+@app.post("/set-target-score/")
+async def set_target_score(request: TargetScoreRequest):
+    """
+    Sets or updates the target score for a given student.
+    """
+    success = set_student_target_score(request.student_id, request.target_score)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to set/update the student's target score")
+    return {"message": "Student's target score updated successfully"}
 
 @app.get("/get-chapter-names/")
 async def api_get_chapter_names(subjectID: int = Query(...)):
