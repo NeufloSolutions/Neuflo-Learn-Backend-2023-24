@@ -164,6 +164,7 @@ def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers
 
     subject_mapping = {1: 'Physics', 2: 'Chemistry', 3: 'Biology'}
     subject_id = subject_mapping.get(subject_ID)
+    print("Subject ID Name: ", subject_id)
 
     if subject_id is None:
         return "Invalid subject ID"
