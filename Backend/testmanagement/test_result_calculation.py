@@ -2,10 +2,11 @@ import datetime
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def calculate_section_practice_test_results(student_id, test_instance_id, subject_code):
-    # Mapping subject_code to SubjectID
-    subject_id_map = {1: 'Physics', 2: 'Chemistry', 3: 'Biology'}
-    subject_name = subject_id_map.get(subject_code, None)
-    if not subject_name:
+    # Updated mapping to handle Biology as both Botany and Zoology
+    subject_id_map = {1: 'Physics', 2: 'Chemistry', 3: ['Botany', 'Zoology']}
+    subject_names = subject_id_map.get(subject_code, None)
+    print(subject_names)
+    if not subject_names:
         return None, "Invalid subject code provided."
 
     conn = create_pg_connection(pg_connection_pool)
@@ -14,54 +15,62 @@ def calculate_section_practice_test_results(student_id, test_instance_id, subjec
 
     try:
         with conn.cursor() as cur:
-            # Assuming Subjects table has a SubjectName column for fetching the SubjectID based on subject_name
-            cur.execute("SELECT SubjectID FROM Subjects WHERE SubjectName = %s", (subject_name,))
-            subject_id_row = cur.fetchone()
-            if not subject_id_row:
+            subject_ids = []
+            for subject_name in subject_names if isinstance(subject_names, list) else [subject_names]:
+                cur.execute("SELECT SubjectID FROM Subjects WHERE SubjectName = %s", (subject_name,))
+                subject_id_row = cur.fetchone()
+                if subject_id_row:
+                    subject_ids.append(subject_id_row[0])
+
+            if not subject_ids:
                 return None, "Subject not found."
-            subject_id = subject_id_row[0]
 
-            # Fetch responses and question details for the specified subject within the test instance
-            cur.execute("""
-                SELECT SR.QuestionID, SR.StudentResponse, Q.Answer, CH.SubjectID, SR.AnsweringTimeInSeconds, SR.ResponseDate
-                FROM StudentResponses SR
-                JOIN Questions Q ON SR.QuestionID = Q.QuestionID
-                JOIN Chapters CH ON Q.ChapterID = CH.ChapterID
-                WHERE SR.StudentID = %s AND SR.TestInstanceID = %s AND CH.SubjectID = %s
-            """, (student_id, test_instance_id, subject_id))
-            responses = cur.fetchall()
-
-            correct_answers, incorrect_answers, total_answering_time = 0, 0, 0
+            correct_answers, incorrect_answers, total_answering_time, total_responses = 0, 0, 0, 0
             last_response_date = None
-            for question_id, student_response, answer, _, answering_time, response_date in responses:
-                correct, incorrect = evaluate_response(student_response, answer)
-                correct_answers += correct
-                incorrect_answers += incorrect
-                answer_correct = correct > 0
-                total_answering_time += answering_time if answering_time else 0
-                last_response_date = max(last_response_date, response_date) if last_response_date else response_date
-                
-                # Update the StudentResponses with the correctness of the answer
-                cur.execute("""
-                    UPDATE StudentResponses
-                    SET AnswerCorrect = %s
-                    WHERE TestInstanceID = %s AND QuestionID = %s
-                """, (answer_correct, test_instance_id, question_id))
 
-            # Calculate score based on correct and incorrect answers
+            # Loop through each subject ID to fetch responses
+            for subject_id in subject_ids:
+                cur.execute("""
+                    SELECT SR.QuestionID, SR.StudentResponse, Q.Answer, CH.SubjectID, SR.AnsweringTimeInSeconds, SR.ResponseDate
+                    FROM StudentResponses SR
+                    JOIN Questions Q ON SR.QuestionID = Q.QuestionID
+                    JOIN Chapters CH ON Q.ChapterID = CH.ChapterID
+                    WHERE SR.StudentID = %s AND SR.TestInstanceID = %s AND CH.SubjectID = %s
+                """, (student_id, test_instance_id, subject_id))
+                responses = cur.fetchall()
+
+                for response in responses:
+                    question_id, student_response, answer, _, answering_time, response_date = response
+                    correct, incorrect = evaluate_response(student_response, answer)
+                    correct_answers += correct
+                    incorrect_answers += incorrect
+                    answer_correct = correct > 0
+                    total_answering_time += answering_time if answering_time else 0
+                    last_response_date = max(last_response_date, response_date) if last_response_date else response_date
+                    
+                    # Update StudentResponses with the correctness of the answer
+                    cur.execute("""
+                        UPDATE StudentResponses
+                        SET AnswerCorrect = %s
+                        WHERE TestInstanceID = %s AND QuestionID = %s
+                    """, (answer_correct, test_instance_id, question_id))
+
+                total_responses += len(responses)
+
             score = correct_answers * 4 - incorrect_answers
 
-            # Update TestHistory for this test instance with new score and details
+            # Ensure division by zero is handled
+            average_answering_time_seconds = (total_answering_time / total_responses) if total_responses else 0
+
             cur.execute("""
                 UPDATE TestHistory
-                SET Score = %s, QuestionsAttempted = QuestionsAttempted + %s, CorrectAnswers = CorrectAnswers + %s, 
-                    IncorrectAnswers = IncorrectAnswers + %s, AverageAnsweringTimeInSeconds = %s, LastTestAttempt = %s
+                SET Score = %s, QuestionsAttempted = %s, CorrectAnswers = %s, 
+                    IncorrectAnswers = %s, AverageAnsweringTimeInSeconds = %s, LastTestAttempt = %s
                 WHERE TestInstanceID = %s AND StudentID = %s
-            """, (score, len(responses), correct_answers, incorrect_answers, total_answering_time / len(responses) if responses else None, last_response_date, test_instance_id, student_id))
+            """, (score, total_responses, correct_answers, incorrect_answers, average_answering_time_seconds, last_response_date, test_instance_id, student_id))
 
-            # Update proficiency tables
             update_proficiency_tables(cur, student_id, test_instance_id)
-            update_practice_test_proficiency(cur, student_id, score, correct_answers, incorrect_answers, total_answering_time / len(responses) if responses else None, last_response_date)
+            update_practice_test_proficiency(cur, student_id, score, correct_answers, incorrect_answers, average_answering_time_seconds, last_response_date)
 
             conn.commit()
             return {
@@ -70,7 +79,7 @@ def calculate_section_practice_test_results(student_id, test_instance_id, subjec
                     "score": score,
                     "correct_answers": correct_answers,
                     "incorrect_answers": incorrect_answers,
-                    "average_answering_time_seconds": total_answering_time / len(responses) if responses else 0,
+                    "average_answering_time_seconds": average_answering_time_seconds,
                     "last_response_date": last_response_date.strftime('%Y-%m-%d %H:%M:%S') if last_response_date else None
                 }
             }, None
@@ -80,6 +89,7 @@ def calculate_section_practice_test_results(student_id, test_instance_id, subjec
     finally:
         if conn:
             release_pg_connection(pg_connection_pool, conn)
+
 
 
 
