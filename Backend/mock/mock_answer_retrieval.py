@@ -1,4 +1,5 @@
 import random
+from psycopg2.extensions import AsIs
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def get_mock_test_answers_only(test_instance_id, student_id):
@@ -54,4 +55,46 @@ def get_mock_test_answers_only(test_instance_id, student_id):
     except Exception as e:
         return None, str(e)
     finally:
+        release_pg_connection(pg_connection_pool, conn)
+
+
+def report_app_issue(user_id, issue_description):
+    """
+    Report an app issue into the database.
+
+    :param user_id: The ID of the user reporting the issue.
+    :param issue_description: The description of the issue.
+    :return: A message indicating success or failure.
+    """
+    # Establish a database connection
+    conn = create_pg_connection(pg_connection_pool)
+    if conn is None:
+        return "Failed to connect to the database."
+
+    try:
+        # Create a cursor to perform database operations
+        cur = conn.cursor()
+        
+        # SQL query to insert a new issue
+        query = """
+        INSERT INTO AppIssues (UserID, IssueDescription)
+        VALUES (%s, %s);
+        """
+        
+        # Execute the query
+        cur.execute(query, (user_id, issue_description))
+        
+        # Commit the transaction
+        conn.commit()
+        
+        # Close the cursor
+        cur.close()
+        
+        return "Issue reported successfully."
+    except Exception as e:
+        # In case of any errors, rollback the transaction
+        conn.rollback()
+        return f"An error occurred: {e}"
+    finally:
+        # Release the connection back to the pool
         release_pg_connection(pg_connection_pool, conn)

@@ -2,12 +2,8 @@ import datetime
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def calculate_section_practice_test_results(student_id, test_instance_id, subject_code):
-    # Updated mapping to handle Biology as both Botany and Zoology
     subject_id_map = {1: 'Physics', 2: 'Chemistry', 3: ['Botany', 'Zoology']}
     subject_names = subject_id_map.get(subject_code, None)
-    print(subject_names)
-    if not subject_names:
-        return None, "Invalid subject code provided."
 
     conn = create_pg_connection(pg_connection_pool)
     if not conn:
@@ -28,7 +24,6 @@ def calculate_section_practice_test_results(student_id, test_instance_id, subjec
             correct_answers, incorrect_answers, total_answering_time, total_responses = 0, 0, 0, 0
             last_response_date = None
 
-            # Loop through each subject ID to fetch responses
             for subject_id in subject_ids:
                 cur.execute("""
                     SELECT SR.QuestionID, SR.StudentResponse, Q.Answer, CH.SubjectID, SR.AnsweringTimeInSeconds, SR.ResponseDate
@@ -44,30 +39,47 @@ def calculate_section_practice_test_results(student_id, test_instance_id, subjec
                     correct, incorrect = evaluate_response(student_response, answer)
                     correct_answers += correct
                     incorrect_answers += incorrect
-                    answer_correct = correct > 0
                     total_answering_time += answering_time if answering_time else 0
                     last_response_date = max(last_response_date, response_date) if last_response_date else response_date
-                    
-                    # Update StudentResponses with the correctness of the answer
+                    total_responses += 1
+
                     cur.execute("""
                         UPDATE StudentResponses
                         SET AnswerCorrect = %s
                         WHERE TestInstanceID = %s AND QuestionID = %s
-                    """, (answer_correct, test_instance_id, question_id))
-
-                total_responses += len(responses)
+                    """, (correct > 0, test_instance_id, question_id))
 
             score = correct_answers * 4 - incorrect_answers
-
-            # Ensure division by zero is handled
             average_answering_time_seconds = (total_answering_time / total_responses) if total_responses else 0
 
+            # Check if entry exists
             cur.execute("""
-                UPDATE TestHistory
-                SET Score = %s, QuestionsAttempted = %s, CorrectAnswers = %s, 
-                    IncorrectAnswers = %s, AverageAnsweringTimeInSeconds = %s, LastTestAttempt = %s
+                SELECT Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds
+                FROM TestHistory
                 WHERE TestInstanceID = %s AND StudentID = %s
-            """, (score, total_responses, correct_answers, incorrect_answers, average_answering_time_seconds, last_response_date, test_instance_id, student_id))
+            """, (test_instance_id, student_id))
+            history = cur.fetchone()
+
+            if history:
+                # Calculate new averages
+                new_avg_score = (history[0] + score) / 2
+                new_questions_attempted = history[1] + total_responses
+                new_correct_answers = (history[2] + correct_answers) / 2
+                new_incorrect_answers = (history[3] + incorrect_answers) / 2
+                new_avg_answering_time = (history[4] + average_answering_time_seconds) / 2 if history[4] else average_answering_time_seconds
+
+                cur.execute("""
+                    UPDATE TestHistory
+                    SET Score = %s, QuestionsAttempted = %s, CorrectAnswers = %s, IncorrectAnswers = %s, 
+                        AverageAnsweringTimeInSeconds = %s, LastTestAttempt = %s
+                    WHERE TestInstanceID = %s AND StudentID = %s
+                """, (new_avg_score, new_questions_attempted, new_correct_answers, new_incorrect_answers, new_avg_answering_time, last_response_date, test_instance_id, student_id))
+            else:
+                cur.execute("""
+                    INSERT INTO TestHistory (TestInstanceID, StudentID, Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, 
+                        AverageAnsweringTimeInSeconds, LastTestAttempt)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (test_instance_id, student_id, score, total_responses, correct_answers, incorrect_answers, average_answering_time_seconds, last_response_date))
 
             update_proficiency_tables(cur, student_id, test_instance_id)
             update_practice_test_proficiency(cur, student_id, score, correct_answers, incorrect_answers, average_answering_time_seconds, last_response_date)
@@ -89,9 +101,6 @@ def calculate_section_practice_test_results(student_id, test_instance_id, subjec
     finally:
         if conn:
             release_pg_connection(pg_connection_pool, conn)
-
-
-
 
 
 def calculate_test_results(student_id, test_instance_id):
