@@ -9,12 +9,27 @@ from Backend.testmanagement.test_result_calculation import calculate_test_result
 from Backend.testmanagement.student_proficiency import set_student_target_score, get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency, calculate_chapterwise_report
 from Backend.practice.practice_answer_retrieval import get_practice_test_answers_only
 from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
-from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only
+from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only, report_app_issue
 from Backend.customtest.custom_test_management import generate_custom_test
 from Backend.chatsystem.chatbot import prepare_and_chat_with_neet_instructor
 from Backend.testmanagement.question_management import add_question_issue
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+origins = [
+    "https://neuflo-learn.netlify.app",
+    # Add other origins here if necessary
+]
+
+# Add CORSMiddleware to the application
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Allows only specified origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 @app.get("/")
 def read_root():
@@ -314,6 +329,21 @@ async def api_get_question_details(question_id: int = Query(...)):
         # Raises an HTTPException if there's an error in fetching the question details.
         raise HTTPException(status_code=500, detail=error)
     return question_details
+
+class IssueReport(BaseModel):
+    user_id: int
+    issue_description: str
+
+@app.post("/report-issue", response_model=Any)
+async def report_issue(issue: IssueReport):
+    """
+    Endpoint to report an app issue.
+    """
+    result = report_app_issue(issue.user_id, issue.issue_description)
+    if "successfully" in result:
+        return {"message": result}
+    else:
+        raise HTTPException(status_code=500, detail=result)
 
 @app.get("/get-answer")
 def api_get_answer(question_id: int = Query(...)):
