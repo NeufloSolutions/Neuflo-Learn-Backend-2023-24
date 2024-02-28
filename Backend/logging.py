@@ -1,6 +1,8 @@
+import logging
 import time
 from fastapi import Request
 from typing import Callable
+
 from starlette.types import ASGIApp, Scope, Receive, Send
 
 logger = logging.getLogger(__name__)
