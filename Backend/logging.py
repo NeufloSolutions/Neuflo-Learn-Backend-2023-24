@@ -1,15 +1,23 @@
 import time
 from fastapi import Request
-import logging
+from typing import Callable
+from starlette.types import ASGIApp, Scope, Receive, Send
 
-# Assuming the logger is configured elsewhere to use AzureLogHandler
 logger = logging.getLogger(__name__)
 
 class LogLatencyMiddleware:
-    async def __call__(self, request: Request, call_next):
-        start_time = time.time()
-        response = await call_next(request)
-        process_time = time.time() - start_time
-        # Use logger to log the API call and its latency
-        logger.info(f"Request: {request.method} {request.url.path} completed in {process_time} seconds")
-        return response
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope['type'] == 'http':
+            start_time = time.time()
+            request = Request(scope, receive=receive)  # Create a Request object
+            print(f"Request: {request.method} {request.url.path} started")  # Logging request start
+            logger.info(f"Request: {request.method} {request.url.path} started")
+            await self.app(scope, receive, send)  # Call the next app in the middleware stack
+            process_time = time.time() - start_time
+            print(f"Request: {request.method} {request.url.path} completed in {process_time} seconds")  # Logging request completion
+            logger.info(f"Request: {request.method} {request.url.path} completed in {process_time} seconds")
+        else:
+            await self.app(scope, receive, send)  # Non-HTTP requests are passed through

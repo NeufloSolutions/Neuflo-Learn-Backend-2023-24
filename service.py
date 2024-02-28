@@ -27,6 +27,8 @@ import logging
 
 
 app = FastAPI()
+app.add_middleware(LogLatencyMiddleware)
+
 
 origins = [
     "https://neuflo-learn.netlify.app",
@@ -41,8 +43,6 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
-
-app.add_middleware(LogLatencyMiddleware)
 
 # Setup Azure Monitor
 instrumentation_key = '2ac7bfc7-22c3-4852-9ee6-e35c4d87a5be'  # Replace with your Application Insights Instrumentation Key
