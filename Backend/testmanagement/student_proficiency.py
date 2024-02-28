@@ -1,4 +1,7 @@
 import logging
+import xlsxwriter
+import pandas as pd
+from io import BytesIO
 from datetime import datetime
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
@@ -215,5 +218,95 @@ def set_student_target_score(student_id, target_score):
         print(f"An error occurred while setting the student's target score: {e}")
         conn.rollback()
         return False
+    finally:
+        release_pg_connection(pg_connection_pool, conn)
+
+
+
+def student_test_history_in_excel(student_id):
+    conn = create_pg_connection(pg_connection_pool)
+    if not conn:
+        return None, "Database connection failed"
+
+    subject_averages = {
+        "Physics": {"AverageCorrect": 0, "AverageIncorrect": 0},
+        "Chemistry": {"AverageCorrect": 0, "AverageIncorrect": 0},
+        "Biology": {"AverageCorrect": 0, "AverageIncorrect": 0}  # Botany and Zoology together
+    }
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT TI.TestInstanceID, TI.TestType, TI.TestID, TH.Score, TH.QuestionsAttempted, 
+                       TH.CorrectAnswers, TH.IncorrectAnswers, 
+                       TH.AverageAnsweringTimeInSeconds, TI.TestDateTime
+                FROM TestInstances TI
+                JOIN TestHistory TH ON TI.TestInstanceID = TH.TestInstanceID
+                WHERE TI.StudentID = %s
+            """, (student_id,))
+            history = cur.fetchall()
+            formatted_history = [{
+                "test_instance_id": row[0],
+                "test_type": row[1],
+                "test_id": row[2],
+                "score": row[3],
+                "questions_attempted": row[4],
+                "correct_answers": row[5],
+                "incorrect_answers": row[6],
+                "average_answering_time_in_seconds": row[7],
+                "test_date_time": row[8]
+            } for row in history]
+
+            subject_ids = {"Physics": 1, "Chemistry": 2, "Biology": [3, 4]}
+            for subject, ids in subject_ids.items():
+                if isinstance(ids, list):
+                    placeholders = ','.join(['%s'] * len(ids))
+                    query = f"""
+                        SELECT AVG(SR.AnswerCorrect::int) AS AverageCorrect, AVG((NOT SR.AnswerCorrect)::int) AS AverageIncorrect
+                        FROM StudentResponses SR
+                        JOIN Questions Q ON SR.QuestionID = Q.QuestionID
+                        JOIN Chapters C ON Q.ChapterID = C.ChapterID
+                        WHERE SR.StudentID = %s AND C.SubjectID IN ({placeholders}) AND SR.AnswerCorrect IS NOT NULL
+                    """
+                    cur.execute(query, (student_id, *ids))
+                else:
+                    cur.execute("""
+                        SELECT AVG(SR.AnswerCorrect::int) AS AverageCorrect, AVG((NOT SR.AnswerCorrect)::int) AS AverageIncorrect
+                        FROM StudentResponses SR
+                        JOIN Questions Q ON SR.QuestionID = Q.QuestionID
+                        JOIN Chapters C ON Q.ChapterID = C.ChapterID
+                        WHERE SR.StudentID = %s AND C.SubjectID = %s AND SR.AnswerCorrect IS NOT NULL
+                    """, (student_id, ids))
+                
+                avg_result = cur.fetchone()
+                if avg_result:
+                    subject_averages[subject]["AverageCorrect"] = float(avg_result[0] or 0) * 100
+                    subject_averages[subject]["AverageIncorrect"] = float(avg_result[1] or 0) * 100
+
+            chapterwise_report = calculate_chapterwise_report(student_id)
+            if "error" in chapterwise_report:
+                return None, "Error retrieving chapterwise report: " + chapterwise_report["error"]
+
+        history_df = pd.DataFrame(formatted_history)
+        averages_df = pd.DataFrame(subject_averages).T.reset_index().rename(columns={'index': 'Subject'})
+        chapterwise_report_df = {}  # Assuming calculate_chapterwise_report returns a dict suitable for conversion
+        
+         # Instead of saving the Excel file to disk, save it to a BytesIO object
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            history_df.to_excel(writer, sheet_name='Test History', index=False)
+            averages_df.to_excel(writer, sheet_name='Subject Averages', index=False)
+            
+            for subject, df in chapterwise_report_df.items():
+                df.to_excel(writer, sheet_name=f'{subject} Report', index=False)
+        
+        # Important: Seek to the start of the BytesIO object
+        output.seek(0)
+        
+        # Instead of returning a file path, return the BytesIO object itself
+        return output
+
+    except Exception as e:
+        return None, "Error retrieving student test history: " + str(e)
     finally:
         release_pg_connection(pg_connection_pool, conn)

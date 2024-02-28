@@ -1,12 +1,13 @@
-from fastapi import FastAPI, HTTPException, Query, Header, Body
+from fastapi import FastAPI, HTTPException, Query, Header, Body, Response
 from typing import List, Dict, Union, Any
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 from Backend.dbconfig.cache_management import clear_student_cache, delete_all_test_data  
 from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
 from Backend.testmanagement.question_management import get_unique_student_ids, get_question_details, get_answer, list_tests_for_student,get_chapter_names, get_test_completion
 from Backend.testmanagement.test_result_calculation import calculate_test_results, calculate_section_practice_test_results
-from Backend.testmanagement.student_proficiency import set_student_target_score, get_student_test_history, get_chapter_proficiency, get_subtopic_proficiency, calculate_chapterwise_report
+from Backend.testmanagement.student_proficiency import set_student_target_score, get_student_test_history, student_test_history_in_excel, get_chapter_proficiency, get_subtopic_proficiency, calculate_chapterwise_report
 from Backend.practice.practice_answer_retrieval import get_practice_test_answers_only
 from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
 from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only, report_app_issue
@@ -14,6 +15,16 @@ from Backend.customtest.custom_test_management import generate_custom_test
 from Backend.chatsystem.chatbot import prepare_and_chat_with_neet_instructor
 from Backend.testmanagement.question_management import add_question_issue
 from fastapi.middleware.cors import CORSMiddleware
+from Backend.logging import LogLatencyMiddleware
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+import traceback
+from opencensus.ext.azure.trace_exporter import AzureExporter
+from opencensus.trace.tracer import Tracer
+from opencensus.trace.samplers import ProbabilitySampler
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+import logging
+
 
 app = FastAPI()
 
@@ -30,6 +41,29 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+app.add_middleware(LogLatencyMiddleware)
+
+# Setup Azure Monitor
+instrumentation_key = '2ac7bfc7-22c3-4852-9ee6-e35c4d87a5be'  # Replace with your Application Insights Instrumentation Key
+tracer = Tracer(exporter=AzureExporter(connection_string=f'InstrumentationKey={instrumentation_key};IngestionEndpoint=https://centralindia-0.in.applicationinsights.azure.com/;LiveEndpoint=https://centralindia.livediagnostics.monitor.azure.com/'),
+                sampler=ProbabilitySampler(1.0))
+
+# Configure logging to send logs to Application Insights
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = AzureLogHandler(connection_string=f'InstrumentationKey={instrumentation_key}')
+logger.addHandler(handler)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # Log the error details using the configured logger
+    error_message = f"Error: {exc.detail}"
+    logger.error(error_message, exc_info=True)  # Log with stack trace
+    # Return the original error response
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
 
 @app.get("/")
 def read_root():
@@ -296,6 +330,18 @@ def api_get_student_test_history(student_id: int = Query(...)):
     if error:
         raise HTTPException(status_code=500, detail=error)
     return history
+
+@app.get("/get-student-test-history-excel")
+async def get_student_test_history_excel(student_id: int = Query(...)):
+    # Assuming get_student_test_history_excel is defined as shown above
+    excel_file = student_test_history_in_excel(student_id)
+    if excel_file is None:
+        return Response(content="Error generating Excel file", status_code=500)
+    
+    headers = {
+        "Content-Disposition": "attachment; filename=test_history.xlsx"
+    }
+    return StreamingResponse(excel_file, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
 @app.get("/chapter-proficiency")
 def api_get_chapter_proficiency(student_id: int = Query(...)):
