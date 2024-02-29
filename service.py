@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Query, Header, Body, Response
 from typing import List, Dict, Union, Any
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import os
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 from Backend.dbconfig.cache_management import clear_student_cache, delete_all_test_data  
 from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
@@ -24,11 +25,31 @@ from opencensus.trace.tracer import Tracer
 from opencensus.trace.samplers import ProbabilitySampler
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 import logging
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from azure.monitor.opentelemetry import configure_azure_monitor
+from opentelemetry import trace
+from opentelemetry.trace import (
+    get_tracer_provider,
+)
 
+from opentelemetry.propagate import extract
+from logging import getLogger, INFO
+
+os.environ["APPLICATIONINSIGHTS_CONNECTION_STRING"] = r"InstrumentationKey=66db3b47-d39b-47e4-8430-e5e04da1435c;IngestionEndpoint=https://centralindia-0.in.applicationinsights.azure.com/;LiveEndpoint=https://centralindia.livediagnostics.monitor.azure.com/"
+
+if os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    configure_azure_monitor(
+        connection_string=os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
+    )
+
+tracer = trace.get_tracer(__name__,
+                          tracer_provider=get_tracer_provider())
+
+logger = getLogger(__name__)
 
 app = FastAPI()
 app.add_middleware(LogLatencyMiddleware)
-
+FastAPIInstrumentor.instrument_app(app)
 
 origins = [
     "https://neuflo-learn.netlify.app",
@@ -43,18 +64,6 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
-
-# Setup Azure Monitor
-instrumentation_key = '2ac7bfc7-22c3-4852-9ee6-e35c4d87a5be'  # Replace with your Application Insights Instrumentation Key
-tracer = Tracer(exporter=AzureExporter(connection_string=f'InstrumentationKey={instrumentation_key};IngestionEndpoint=https://centralindia-0.in.applicationinsights.azure.com/;LiveEndpoint=https://centralindia.livediagnostics.monitor.azure.com/'),
-                sampler=ProbabilitySampler(1.0))
-
-# Configure logging to send logs to Application Insights
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-handler = AzureLogHandler(connection_string=f'InstrumentationKey={instrumentation_key}')
-logger.addHandler(handler)
-
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
