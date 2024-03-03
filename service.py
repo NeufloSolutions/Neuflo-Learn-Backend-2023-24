@@ -470,6 +470,10 @@ async def reset_database():
         # If any exception occurs, raise an HTTPException
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/ping")
+def read_ping():
+    return {"ping": "pong"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5945)
