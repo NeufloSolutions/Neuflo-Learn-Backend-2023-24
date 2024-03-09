@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import os
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 from Backend.dbconfig.cache_management import clear_student_cache, delete_all_test_data  
-from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids,get_practice_test_questions, submit_practice_test_answers
+from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_details, get_practice_test_question_ids,get_practice_test_questions, submit_practice_test_answers
 from Backend.testmanagement.question_management import get_unique_student_ids, get_question_details, get_answer, list_tests_for_student,get_chapter_names, get_test_completion
 from Backend.testmanagement.test_result_calculation import calculate_test_results, calculate_section_practice_test_results
 from Backend.testmanagement.student_proficiency import set_student_target_score, get_student_test_history, student_test_history_in_excel, get_chapter_proficiency, get_subtopic_proficiency, calculate_chapterwise_report
@@ -135,7 +135,6 @@ async def api_generate_practice_test(student_data: StudentIdModel):
         "subject_tests": result["subject_tests"]  # Assuming 'result' contains detailed info about subject-wise tests
     }
 
-
 @app.get("/practice-test/questions")
 async def api_get_practice_test_question_ids(testInstanceID: int = Query(...), student_id: int = Query(...)):
     subject_questions, error = get_practice_test_question_ids(testInstanceID, student_id)
@@ -230,6 +229,21 @@ async def get_test_results(request_data: TestResultsRequest):
         # Release the connection back to the pool
         release_pg_connection(pg_connection_pool, conn)
 
+class PracticeTestDetailsRequest(BaseModel):
+    instance_id: int
+    student_id: int
+
+@app.post("/get-practice-test-details/")
+async def api_get_practice_test_details(request: PracticeTestDetailsRequest) -> Dict:
+    try:
+        # Call the previously defined function with the values from the request
+        details = get_practice_test_details(request.instance_id, request.student_id)
+        
+        # Return the details as JSON
+        return {"details": details}
+    except Exception as e:
+        # If something goes wrong, return an HTTP error response
+        raise HTTPException(status_code=500, detail=str(e))
 
 ######################################################################################################
 
