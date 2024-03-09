@@ -524,7 +524,16 @@ async def reset_database():
 
 @app.get("/admin/host/ping")
 async def ping():
-    return {"message": "pong"}
+    return {"ping": "pong"}
+
+@app.get("/robots933456.txt")
+async def robots_custom():
+    # Log, handle or respond to this request as needed
+    return {"message": "This is not the file you are looking for."}
+
+@app.get("/robots.txt")
+async def robots():
+    return Response(content="User-agent: *\nDisallow:", media_type="text/plain")
 
 if __name__ == "__main__":
     import uvicorn
