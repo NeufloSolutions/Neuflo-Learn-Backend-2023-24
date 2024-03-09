@@ -357,7 +357,82 @@ def create_test_instance(student_id, mock_test_id, test_instance_id, question_id
     finally:
         release_pg_connection(pg_connection_pool, connection)
 
-def get_questions_for_mock_test_instance(testInstanceID, student_id):
+def get_mock_test_questions(test_instance_id, student_id):
+    """
+    Retrieves all question details for a given mock test instance, categorized by subject and section,
+    for a specific student, using the test instance ID.
+
+    :param test_instance_id: ID of the test instance.
+    :param student_id: ID of the student.
+    :return: Dictionary with subject-wise and section-wise question details.
+    """
+    conn = create_pg_connection(pg_connection_pool)
+    if not conn:
+        return None, "Database connection failed"
+
+    questions_dict = {}
+
+    try:
+        with conn.cursor() as cur:
+            # First, get the MockTestID from the TestInstances table
+            cur.execute("""
+                SELECT TestID
+                FROM TestInstances
+                WHERE TestInstanceID = %s AND StudentID = %s AND TestType = 'Mock'
+            """, (test_instance_id, student_id))
+            
+            result = cur.fetchone()
+            if not result:
+                return None, "No MockTestID found for the given TestInstanceID and StudentID."
+
+            mock_test_id = result[0]
+
+            # Fetch all question details using MockTestID in a single query
+            cur.execute("""
+                SELECT s.SubjectName, mtq.Section, q.QuestionID, q.Question, q.OptionA, q.OptionB, q.OptionC, q.OptionD, i.ImageURL, i.ContentType
+                FROM NEETMockTestQuestions mtq
+                JOIN Questions q ON mtq.QuestionID = q.QuestionID
+                LEFT JOIN Images i ON q.QuestionID = i.QuestionID
+                JOIN Chapters c ON q.ChapterID = c.ChapterID
+                JOIN Subjects s ON c.SubjectID = s.SubjectID
+                WHERE mtq.MockTestID = %s
+                ORDER BY s.SubjectName, mtq.Section, q.QuestionID
+            """, (mock_test_id,))
+
+            for row in cur.fetchall():
+                subject_name, section, question_id, question, option_a, option_b, option_c, option_d, image_url, content_type = row
+
+                if subject_name not in questions_dict:
+                    questions_dict[subject_name] = {"SectionA": [], "SectionB": []}
+
+                section_key = "SectionA" if section == 'A' else "SectionB"
+
+                # Organize question details
+                question_details = {
+                    "QuestionID": question_id,
+                    "Question": question,
+                    "Options": {"A": option_a, "B": option_b, "C": option_c, "D": option_d},
+                    "Images": []
+                }
+
+                if image_url and content_type in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD']:
+                    question_details["Images"].append({"URL": image_url, "Type": content_type})
+
+                # To avoid adding duplicate images, only add unique question details
+                if question_details not in questions_dict[subject_name][section_key]:
+                    questions_dict[subject_name][section_key].append(question_details)
+
+    except Exception as e:
+        print(f"Error fetching questions for mock test instance: {e}")
+        return None, str(e)
+    finally:
+        release_pg_connection(pg_connection_pool, conn)
+
+    return questions_dict, None
+
+
+
+def get_questions_id_for_mock_test(testInstanceID, student_id):
     """
     Retrieves all question IDs for a given mock test instance, categorized by subject and section,
     for a specific student, using the test instance ID.
