@@ -1,4 +1,5 @@
 import random
+from psycopg2 import DatabaseError
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 from Backend.dbconfig.cache_management import get_cached_questions, cache_questions
 
@@ -83,6 +84,44 @@ def generate_practice_test(student_id):
         return None, str(e)
     finally:
         release_pg_connection(pg_connection_pool, conn)
+
+def get_practice_test_details(instance_id: int, student_id: int):
+    # Initialize the connection variable
+    conn = None
+    
+    try:
+        # Use the create_pg_connection function to get a connection from the pool
+        conn = create_pg_connection(pg_connection_pool)
+        cur = conn.cursor()
+        
+        # Corrected SQL query with the proper column name 'IsCompleted'
+        sql = """
+        SELECT ti.TestInstanceID, pts.SubjectName, pts.IsCompleted
+        FROM TestInstances ti
+        JOIN PracticeTestSubjects pts ON ti.TestID = pts.PracticeTestID
+        WHERE ti.TestInstanceID = %s AND ti.StudentID = %s;
+        """
+        # Execute the query
+        cur.execute(sql, (instance_id, student_id))
+        # Fetch the results
+        results = cur.fetchall()
+        
+        # Format the results into the desired JSON structure
+        subjects_status = [
+            {"testinstanceid": row[0], "subjectname": row[1], "iscompleted": row[2]}
+            for row in results
+        ]
+        # Close the cursor
+        cur.close()
+        return subjects_status
+    
+    except (Exception, DatabaseError) as error:
+        print(f"Error: {error}")
+        return []
+    finally:
+        # Ensure the connection is released back to the pool regardless of success or error
+        if conn is not None:
+            release_pg_connection(pg_connection_pool, conn)
 
 def select_questions(cur, chapters, used_questions, total_questions, subject_id):
     selected_questions = []
