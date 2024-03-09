@@ -156,6 +156,63 @@ def get_practice_test_question_ids(test_instance_id, student_id):
     finally:
         release_pg_connection(pg_connection_pool, conn)
 
+def get_practice_test_questions(test_instance_id, student_id):
+    conn = create_pg_connection(pg_connection_pool)
+    if not conn:
+        return None, "Database connection failed"
+
+    try:
+        with conn.cursor() as cur:
+            # First, retrieve the PracticeTestID from the TestInstances table
+            cur.execute("""
+                SELECT TestID
+                FROM TestInstances
+                WHERE TestInstanceID = %s AND StudentID = %s AND TestType = 'Practice'
+            """, (test_instance_id, student_id))
+            
+            result = cur.fetchone()
+            if result is None:
+                return None, "Test instance not found or not a practice test."
+
+            practice_test_id = result[0]
+
+            # Now, fetch the questions associated with the practice test
+            cur.execute("""
+                SELECT PTS.SubjectName, Q.QuestionID
+                FROM Questions Q
+                JOIN PracticeTestQuestions PTQ ON Q.QuestionID = PTQ.QuestionID
+                JOIN PracticeTestSubjects PTS ON PTQ.PracticeTestSubjectID = PTS.PracticeTestSubjectID
+                JOIN PracticeTests PT ON PTS.PracticeTestID = PT.PracticeTestID
+                WHERE PT.PracticeTestID = %s AND PT.StudentID = %s
+            """, (practice_test_id, student_id))
+
+            subject_questions = {}
+            for subject_name, question_id in cur.fetchall():
+                # For each question ID, fetch question details
+                cur.execute("""
+                    SELECT Q.Question, Q.OptionA, Q.OptionB, Q.OptionC, Q.OptionD, I.ImageURL, I.ContentType
+                    FROM Questions Q
+                    LEFT JOIN Images I ON Q.QuestionID = I.QuestionID
+                    WHERE Q.QuestionID = %s
+                """, (question_id,))
+                questions = cur.fetchall()
+
+                question_details = {}
+                for q in questions:
+                    if not question_details:
+                        question_details = {"Question": q[0], "Options": {"A": q[1], "B": q[2], "C": q[3], "D": q[4]}, "Images": []}
+                    if q[5] and q[6] in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD']:
+                        question_details["Images"].append({"URL": q[5], "Type": q[6]})
+
+                if subject_name not in subject_questions:
+                    subject_questions[subject_name] = []
+                subject_questions[subject_name].append(question_details)
+            return subject_questions, None
+    except Exception as e:
+        return None, str(e)
+    finally:
+        release_pg_connection(pg_connection_pool, conn)
+
 
 def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers):
     conn = create_pg_connection(pg_connection_pool)

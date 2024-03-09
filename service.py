@@ -5,12 +5,12 @@ from pydantic import BaseModel
 import os
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 from Backend.dbconfig.cache_management import clear_student_cache, delete_all_test_data  
-from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids, submit_practice_test_answers
+from Backend.practice.practice_test_management import generate_practice_test, get_practice_test_question_ids,get_practice_test_questions, submit_practice_test_answers
 from Backend.testmanagement.question_management import get_unique_student_ids, get_question_details, get_answer, list_tests_for_student,get_chapter_names, get_test_completion
 from Backend.testmanagement.test_result_calculation import calculate_test_results, calculate_section_practice_test_results
 from Backend.testmanagement.student_proficiency import set_student_target_score, get_student_test_history, student_test_history_in_excel, get_chapter_proficiency, get_subtopic_proficiency, calculate_chapterwise_report
 from Backend.practice.practice_answer_retrieval import get_practice_test_answers_only
-from Backend.mock.mock_test_management import generate_mock_test, get_questions_for_mock_test_instance, submit_mock_test_answers
+from Backend.mock.mock_test_management import generate_mock_test, get_questions_id_for_mock_test, submit_mock_test_answers, get_mock_test_questions
 from Backend.mock.mock_answer_retrieval import get_mock_test_answers_only, report_app_issue
 from Backend.customtest.custom_test_management import generate_custom_test
 from Backend.chatsystem.chatbot import prepare_and_chat_with_neet_instructor
@@ -143,6 +143,25 @@ async def api_get_practice_test_question_ids(testInstanceID: int = Query(...), s
         raise HTTPException(status_code=500, detail=error)
     return subject_questions
 
+class PracticeTestRequest(BaseModel):
+    test_instance_id: int
+    student_id: int
+
+@app.post("/get-practice-test-questions", response_model=Any)
+async def get_practice_test_questions_endpoint(request: PracticeTestRequest):
+    # Unpack the request body
+    test_instance_id = request.test_instance_id
+    student_id = request.student_id
+
+    # Call the function with the provided input
+    questions, error = get_practice_test_questions(test_instance_id, student_id)
+
+    if error:
+        raise HTTPException(status_code=500, detail=error)
+    
+    return questions
+
+
 @app.get("/get-practice-test-answers")
 async def api_get_practice_test_answers_only(testInstanceID: int = Query(...), student_id: int = Query(...), subject_id: int = Query(...)):
     answers, error = get_practice_test_answers_only(testInstanceID, student_id, subject_id)
@@ -232,10 +251,24 @@ class QuestionModel(BaseModel):
 @app.get("/get-mock-questions")
 async def get_mock_questions_endpoint(testInstanceID: int = Query(...), student_id: int = Query(...)):
     try:
-        questions = get_questions_for_mock_test_instance(testInstanceID, student_id)
+        questions = get_questions_id_for_mock_test(testInstanceID, student_id)
         return {"questions": questions}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class MockTestRequest(BaseModel):
+    test_instance_id: int
+    student_id: int
+
+@app.post("/get-mock-test-questions", response_model=Any)
+async def get_mock_test_questions_endpoint(request: MockTestRequest):
+    # Call the function with the provided input
+    questions, error = get_mock_test_questions(request.test_instance_id, request.student_id)
+
+    if error:
+        raise HTTPException(status_code=500, detail=error)
+    
+    return questions
 
 @app.get("/get-mock-test-answers")
 def api_get_mock_test_answers(testInstanceID: int = Query(...), student_id: int = Query(...)):
@@ -469,6 +502,10 @@ async def reset_database():
     except Exception as e:
         # If any exception occurs, raise an HTTPException
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/ping")
+def read_ping():
+    return {"ping": "pong"}
 
 if __name__ == "__main__":
     import uvicorn
