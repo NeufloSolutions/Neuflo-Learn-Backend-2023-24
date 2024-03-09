@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from Backend.logging import LogLatencyMiddleware
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
+from fastapi.responses import FileResponse
 import traceback
 from opencensus.ext.azure.trace_exporter import AzureExporter
 from opencensus.trace.tracer import Tracer
@@ -77,6 +78,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the NEET Exam Preparation API"}
+
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse("favicon.ico")
 
 @app.get("/unique-student-ids/") 
 async def api_get_unique_student_ids():
