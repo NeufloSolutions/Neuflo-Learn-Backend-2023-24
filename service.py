@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from Backend.logging import LogLatencyMiddleware
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
+from fastapi.responses import FileResponse
 import traceback
 from opencensus.ext.azure.trace_exporter import AzureExporter
 from opencensus.trace.tracer import Tracer
@@ -77,6 +78,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the NEET Exam Preparation API"}
+
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse("favicon.ico")
 
 @app.get("/unique-student-ids/") 
 async def api_get_unique_student_ids():
@@ -517,9 +522,18 @@ async def reset_database():
         # If any exception occurs, raise an HTTPException
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/ping")
-def read_ping():
+@app.get("/admin/host/ping")
+async def ping():
     return {"ping": "pong"}
+
+@app.get("/robots933456.txt")
+async def robots_custom():
+    # Log, handle or respond to this request as needed
+    return {"message": "This is not the file you are looking for."}
+
+@app.get("/robots.txt")
+async def robots():
+    return Response(content="User-agent: *\nDisallow:", media_type="text/plain")
 
 if __name__ == "__main__":
     import uvicorn
