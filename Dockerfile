@@ -1,22 +1,38 @@
-# Use an official Python runtime as a base image
-FROM python:3.11.4
+# Stage 1: Build
+FROM python:3.11.4 as builder
 
-# Set environment variables to reduce Python bytecode generation and buffer flushing
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Set the working directory in the container
+# Set work directory
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+COPY requirements.txt .
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
-# Copy the current directory contents into the container at /app
-COPY . /app/
+# Stage 2: Final Image
+FROM python:3.11.4-slim
 
-# Expose the port the app runs on
+# Copy built wheels from builder stage
+COPY --from=builder /app/wheels /wheels
+COPY --from=builder /app/requirements.txt .
+
+# Install dependencies
+RUN pip install --no-cache /wheels/*
+
+# Set work directory
+WORKDIR /app
+
+# Copy your application code to the container (make sure .dockerignore is set up)
+COPY . .
+
+# Expose port for Gunicorn
 EXPOSE 5945
 
-# Define the command to run your app
-CMD ["gunicorn", "--bind", "0.0.0.0:5945", "-k", "uvicorn.workers.UvicornWorker", "service:app"]
+# Create and copy Gunicorn configuration file
+COPY gunicorn.conf.py /app/gunicorn.conf.py
+
+# Start Gunicorn with Uvicorn workers
+CMD ["gunicorn", "--config", "/app/gunicorn.conf.py", "service:app"]
