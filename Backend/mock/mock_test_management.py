@@ -22,10 +22,10 @@ def generate_mock_test(student_id):
 
             for subject_id in subject_ids:
                 questions_a = select_questions_for_subject(subject_id, student_id, 'A', current_selected_questions)
+                current_selected_questions.extend([q[0] for q in questions_a])
                 questions_b = select_questions_for_subject(subject_id, student_id, 'B', current_selected_questions)
                 mock_test_questions.extend(questions_a + questions_b)
-                current_selected_questions.extend([q[0] for q in questions_a + questions_b])
-
+                current_selected_questions.extend([q[0] for q in questions_b])
             success = create_test_instance(student_id, mock_test_id, test_instance_id, mock_test_questions)
             if success:
                 cur.execute("""
@@ -34,6 +34,8 @@ def generate_mock_test(student_id):
                 """, (mock_test_id, student_id,))
                 conn.commit()
                 return {"message": "Mock test generated successfully", "testInstanceID": test_instance_id}
+            else:
+                print("Failed", mock_test_id, mock_test_id)
     except Exception as e:
         conn.rollback()
         return {"message": f"An error occurred: {str(e)}"}
@@ -91,30 +93,33 @@ def select_questions_for_subject(subject_id, student_id, section, current_select
     # Define the number of questions required for each section
     total_questions_required = 35 if section == 'A' else 15
     selected_questions = []
-
-    if len(all_questions) >= total_questions_required:
+    print("all question::", len(all_questions))
+    if len(set(all_questions)) >= total_questions_required:
         # Sufficient unique questions available, excluding current selections
         selected_questions = weighted_question_selection(all_questions, chapters_weightage, total_questions_required, used_questions)
+        print("selected_questions from all question:", len(selected_questions))
     else:
         # Allow repetition, but ensure no duplicates within the current test
-        print("Not enough unique questions, allowing repetitions.")
+       
         excluded_questions = used_questions | set(current_selected_questions)
-        additional_needed = total_questions_required - len(selected_questions)
+        additional_needed = total_questions_required - len(set(selected_questions))
+        print("Not enough unique questions, allowing repetitions.",additional_needed)
         selected_questions += get_additional_questions(subject_id, excluded_questions, chapters_weightage, additional_needed, current_selected_questions)
-
+    
     # Ensure the total number of selected questions meets the requirement
     while len(selected_questions) < total_questions_required:
-        additional_needed = total_questions_required - len(selected_questions)
+        additional_needed = total_questions_required - len(set(selected_questions))
         # Fetch more questions, considering current mock test selections
         excluded_questions = set(selected_questions) | set(current_selected_questions)
         additional_questions = get_additional_questions(subject_id, excluded_questions, chapters_weightage, additional_needed, current_selected_questions)
         selected_questions += additional_questions
         # Ensure uniqueness after each addition
+        print(additional_questions, " - Needed . Additional question:", len(set(additional_questions)))
         selected_questions = list(set(selected_questions))
-
+    print("selected_questions question:", len(selected_questions))
     # Trim to required size to handle any over-selection
-    selected_questions = selected_questions[:total_questions_required]
-
+    selected_questions = list(set(selected_questions))[:total_questions_required]
+    print("selected_questions after remove duplicate:", len(selected_questions))
     # Update the cache with the newly selected questions
     cache_questions(student_id, "mock", list(used_questions | set(selected_questions)))
 
@@ -261,6 +266,7 @@ def weighted_question_selection(question_ids, weightage, num_questions, used_que
     :param used_questions: Set of question IDs that have been used previously.
     :return: List of selected question IDs.
     """
+    question_ids = list(set(question_ids))
     # Fetch chapter IDs for all questions
     chapter_ids_for_questions = get_chapter_ids_for_questions(question_ids)
 
@@ -281,13 +287,13 @@ def weighted_question_selection(question_ids, weightage, num_questions, used_que
 
     # If the weighted list has enough questions for selection, perform the selection
     if len(weighted_questions) >= num_questions:
-        selected_questions = random.sample(weighted_questions, num_questions)
+        selected_questions = list(set(random.sample(weighted_questions, num_questions)))
     else:
         # If not enough questions in the weighted list, fill the remainder with random choices, allowing repetitions
         remainder = num_questions - len(weighted_questions)
-        additional_questions = random.choices(question_ids, k=remainder)
-        selected_questions = weighted_questions + additional_questions
 
+        additional_questions = set(random.choices(question_ids, k=remainder))
+        selected_questions = weighted_questions + list(additional_questions)
     return selected_questions
 
 def get_chapter_ids_for_questions(question_ids):
@@ -336,13 +342,19 @@ def create_test_instance(student_id, mock_test_id, test_instance_id, question_id
         if not all(isinstance(q, tuple) and len(q) == 2 for q in question_ids_with_sections):
             raise ValueError("Invalid format in question_ids_with_sections. Expected list of tuples (QuestionID, Section).")
         questions_data = [(mock_test_id, qid, sec) for qid, sec in question_ids_with_sections]
-
+        print("Before insert questions_data set len", len(questions_data))
         # Bulk insert selected questions into NEETMockTestQuestions with section info, ignoring duplicates
-        insert_query = """
-        INSERT INTO NEETMockTestQuestions (MockTestID, QuestionID, Section) VALUES %s
-        ON CONFLICT (MockTestID, QuestionID) DO NOTHING
-        """
-        psycopg2.extras.execute_values(cursor, insert_query, questions_data)
+        # insert_query = """
+        # INSERT INTO NEETMockTestQuestions (MockTestID, QuestionID, Section) VALUES %s
+        # ON CONFLICT (MockTestID, QuestionID) DO NOTHING
+        # """
+        try:
+            insert_query = """
+            INSERT INTO NEETMockTestQuestions (MockTestID, QuestionID, Section) VALUES %s
+            """
+            psycopg2.extras.execute_values(cursor, insert_query, questions_data)
+        except Exception as e:
+            print("Error", e)
 
         # Insert into TestInstances
         cursor.execute("INSERT INTO TestInstances (TestInstanceID, StudentID, TestID, TestType) VALUES (%s, %s, %s, 'Mock')", (test_instance_id, student_id, mock_test_id))
@@ -389,35 +401,38 @@ def get_mock_test_questions(test_instance_id, student_id):
 
             # Fetch all question details using MockTestID in a single query
             cur.execute("""
-                SELECT s.SubjectName, mtq.Section, q.QuestionID, q.Question, q.OptionA, q.OptionB, q.OptionC, q.OptionD, i.ImageURL, i.ContentType
+                SELECT s.SubjectName, mtq.Section, q.QuestionID, q.Question, q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.hasimage
                 FROM NEETMockTestQuestions mtq
                 JOIN Questions q ON mtq.QuestionID = q.QuestionID
-                LEFT JOIN Images i ON q.QuestionID = i.QuestionID
                 JOIN Chapters c ON q.ChapterID = c.ChapterID
                 JOIN Subjects s ON c.SubjectID = s.SubjectID
                 WHERE mtq.MockTestID = %s
                 ORDER BY s.SubjectName, mtq.Section, q.QuestionID
-            """, (mock_test_id,))
-
+            """, (mock_test_id,)) 
+            #  i.ImageURL, i.ContentType  LEFT JOIN Images i ON q.QuestionID = i.QuestionID image_url, content_type
             for row in cur.fetchall():
-                subject_name, section, question_id, question, option_a, option_b, option_c, option_d, image_url, content_type = row
+                subject_name, section, question_id, question, option_a, option_b, option_c, option_d, hasimage = row
 
                 if subject_name not in questions_dict:
                     questions_dict[subject_name] = {"SectionA": [], "SectionB": []}
 
                 section_key = "SectionA" if section == 'A' else "SectionB"
-
+                image_list = []
+                if hasimage == True:
+                     cur.execute("""SELECT img.ImageURL, img.ContentType From images img where questionid=%s""",(question_id,))
+                     for row in cur.fetchall():
+                         image_url, content_type = row
+                         image_list.append({"URL": image_url, "Type": content_type}) 
                 # Organize question details
                 question_details = {
                     "QuestionID": question_id,
                     "Question": question,
                     "Options": {"A": option_a, "B": option_b, "C": option_c, "D": option_d},
-                    "Images": []
+                    "Images": image_list
                 }
 
-                if image_url and content_type in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD']:
-                    question_details["Images"].append({"URL": image_url, "Type": content_type})
-
+                # if image_url and content_type in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD']:
+                #     question_details["Images"].append({"URL": image_url, "Type": content_type})
                 # To avoid adding duplicate images, only add unique question details
                 if question_details not in questions_dict[subject_name][section_key]:
                     questions_dict[subject_name][section_key].append(question_details)
@@ -475,7 +490,6 @@ def get_questions_id_for_mock_test(testInstanceID, student_id):
         print(f"Error fetching questions for mock test instance: {e}")
     finally:
         release_pg_connection(pg_connection_pool, connection)
-
     return questions_dict
 
 def submit_mock_test_answers(student_id, testInstanceID, answers):
