@@ -21,3 +21,5 @@ venv/
 *.sqlite
 query.txt
 query
+Dockerfile1Ignore
+**/__pycache__/

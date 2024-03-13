@@ -26,7 +26,6 @@ def generate_mock_test(student_id):
                 questions_b = select_questions_for_subject(subject_id, student_id, 'B', current_selected_questions)
                 mock_test_questions.extend(questions_a + questions_b)
                 current_selected_questions.extend([q[0] for q in questions_b])
-            
             success = create_test_instance(student_id, mock_test_id, test_instance_id, mock_test_questions)
             if success:
                 cur.execute("""
@@ -34,8 +33,9 @@ def generate_mock_test(student_id):
                     VALUES (%s, %s, FALSE)
                 """, (mock_test_id, student_id,))
                 conn.commit()
-                
                 return {"message": "Mock test generated successfully", "testInstanceID": test_instance_id}
+            else:
+                print("Failed", mock_test_id, mock_test_id)
     except Exception as e:
         conn.rollback()
         return {"message": f"An error occurred: {str(e)}"}
@@ -343,7 +343,6 @@ def create_test_instance(student_id, mock_test_id, test_instance_id, question_id
             raise ValueError("Invalid format in question_ids_with_sections. Expected list of tuples (QuestionID, Section).")
         questions_data = [(mock_test_id, qid, sec) for qid, sec in question_ids_with_sections]
         print("Before insert questions_data set len", len(questions_data))
-        print("QDATA----",questions_data)
         # Bulk insert selected questions into NEETMockTestQuestions with section info, ignoring duplicates
         # insert_query = """
         # INSERT INTO NEETMockTestQuestions (MockTestID, QuestionID, Section) VALUES %s
@@ -402,35 +401,38 @@ def get_mock_test_questions(test_instance_id, student_id):
 
             # Fetch all question details using MockTestID in a single query
             cur.execute("""
-                SELECT s.SubjectName, mtq.Section, q.QuestionID, q.Question, q.OptionA, q.OptionB, q.OptionC, q.OptionD, i.ImageURL, i.ContentType
+                SELECT s.SubjectName, mtq.Section, q.QuestionID, q.Question, q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.hasimage
                 FROM NEETMockTestQuestions mtq
                 JOIN Questions q ON mtq.QuestionID = q.QuestionID
-                LEFT JOIN Images i ON q.QuestionID = i.QuestionID
                 JOIN Chapters c ON q.ChapterID = c.ChapterID
                 JOIN Subjects s ON c.SubjectID = s.SubjectID
                 WHERE mtq.MockTestID = %s
                 ORDER BY s.SubjectName, mtq.Section, q.QuestionID
-            """, (mock_test_id,))
-
+            """, (mock_test_id,)) 
+            #  i.ImageURL, i.ContentType  LEFT JOIN Images i ON q.QuestionID = i.QuestionID image_url, content_type
             for row in cur.fetchall():
-                subject_name, section, question_id, question, option_a, option_b, option_c, option_d, image_url, content_type = row
+                subject_name, section, question_id, question, option_a, option_b, option_c, option_d, hasimage = row
 
                 if subject_name not in questions_dict:
                     questions_dict[subject_name] = {"SectionA": [], "SectionB": []}
 
                 section_key = "SectionA" if section == 'A' else "SectionB"
-
+                image_list = []
+                if hasimage == True:
+                     cur.execute("""SELECT img.ImageURL, img.ContentType From images img where questionid=%s""",(question_id,))
+                     for row in cur.fetchall():
+                         image_url, content_type = row
+                         image_list.append({"URL": image_url, "Type": content_type}) 
                 # Organize question details
                 question_details = {
                     "QuestionID": question_id,
                     "Question": question,
                     "Options": {"A": option_a, "B": option_b, "C": option_c, "D": option_d},
-                    "Images": []
+                    "Images": image_list
                 }
 
-                if image_url and content_type in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD']:
-                    question_details["Images"].append({"URL": image_url, "Type": content_type})
-
+                # if image_url and content_type in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD']:
+                #     question_details["Images"].append({"URL": image_url, "Type": content_type})
                 # To avoid adding duplicate images, only add unique question details
                 if question_details not in questions_dict[subject_name][section_key]:
                     questions_dict[subject_name][section_key].append(question_details)
