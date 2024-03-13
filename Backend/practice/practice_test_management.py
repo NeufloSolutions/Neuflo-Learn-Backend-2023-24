@@ -227,9 +227,9 @@ def get_practice_test_questions(test_instance_id, student_id):
 
             subject_questions = {}
             for subject_name, question_id in cur.fetchall():
-                # For each question ID, fetch question details
+                # For each question ID, fetch question details including answer and explanation
                 cur.execute("""
-                    SELECT Q.Question, Q.OptionA, Q.OptionB, Q.OptionC, Q.OptionD, I.ImageURL, I.ContentType
+                    SELECT Q.Question, Q.OptionA, Q.OptionB, Q.OptionC, Q.OptionD, Q.Answer, Q.Explanation, I.ImageURL, I.ContentType
                     FROM Questions Q
                     LEFT JOIN Images I ON Q.QuestionID = I.QuestionID
                     WHERE Q.QuestionID = %s
@@ -239,9 +239,16 @@ def get_practice_test_questions(test_instance_id, student_id):
                 question_details = {}
                 for q in questions:
                     if not question_details:
-                        question_details = {"Question": q[0], "Options": {"A": q[1], "B": q[2], "C": q[3], "D": q[4]}, "Images": []}
-                    if q[5] and q[6] in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD']:
-                        question_details["Images"].append({"URL": q[5], "Type": q[6]})
+                        # Now includes answer and explanation in the question details
+                        question_details = {
+                            "Question": q[0],
+                            "Options": {"A": q[1], "B": q[2], "C": q[3], "D": q[4]},
+                            "Answer": q[5],
+                            "Explanation": q[6],
+                            "Images": []
+                        }
+                    if q[7] and q[8] in ['QUE', 'OptionA', 'OptionB', 'OptionC', 'OptionD', 'EXP']:
+                        question_details["Images"].append({"URL": q[7], "Type": q[8]})
 
                 if subject_name not in subject_questions:
                     subject_questions[subject_name] = []
@@ -251,6 +258,7 @@ def get_practice_test_questions(test_instance_id, student_id):
         return None, str(e)
     finally:
         release_pg_connection(pg_connection_pool, conn)
+
 
 
 def submit_practice_test_answers(student_id, testInstanceID, subject_ID, answers):
