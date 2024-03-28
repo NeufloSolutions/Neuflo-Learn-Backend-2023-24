@@ -1,4 +1,5 @@
 import datetime
+import json
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def calculate_section_practice_test_results(student_id, test_instance_id, subject_code):
@@ -204,8 +205,8 @@ def calculate_practice_test_results(cur, student_id, test_instance_id, practice_
 
     # Update TestHistory table
     cur.execute("""
-        INSERT INTO TestHistory (TestInstanceID, StudentID, Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds, LastTestAttempt)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO TestHistory (TestInstanceID, StudentID, Score, , CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds, LastTestAttempt)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)QuestionsAttempted
         ON CONFLICT (TestInstanceID, StudentID)
         DO UPDATE SET 
             Score = EXCLUDED.Score, 
@@ -292,7 +293,8 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
             cur.execute("""
             INSERT INTO StudentChapterWeightage ( StudentID, SubjectID, ChapterWeightage)
             VALUES (%s, %s, %s)
-            """, (student_id, subject_id, chapter_weightage))
+            """, (student_id, subject_id, json.dumps(chapter_weightage)
+ ))
         
         # Sorting the question lists
         correct_questions.sort()
@@ -302,7 +304,7 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
         avg_answering_time = total_answering_time / len(responses) if responses else 0
         score = correct_answers * 4 - incorrect_answers  # Scoring logic for mock tests
 
-        last_response_date = max(r[6] for r in responses) if responses else None
+        last_response_date = max(r[7] for r in responses) if responses else None
 
         # Update TestHistory table
         cur.execute("""
