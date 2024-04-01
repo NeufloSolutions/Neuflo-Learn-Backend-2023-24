@@ -49,7 +49,7 @@ def generate_practice_test(student_id):
 
             for subject_id, details in subjects.items():
                 chapters = fetch_chapters(cur, subject_id)
-                questions = select_questions(cur, chapters, used_questions, details["total_questions"], subject_id)
+                questions = select_questions(cur, chapters, used_questions, details["total_questions"], subject_id, student_id)
 
                 cur.execute("""
                     INSERT INTO PracticeTestSubjects (PracticeTestID, SubjectName)
@@ -123,11 +123,107 @@ def get_practice_test_details(instance_id: int, student_id: int):
         if conn is not None:
             release_pg_connection(pg_connection_pool, conn)
 
-def select_questions(cur, chapters, used_questions, total_questions, subject_id):
+def get_chapter_ids_for_questions(question_ids):
+    """
+    Retrieves the chapter IDs for a given list of question IDs.
+
+    :param question_ids: List of question IDs.
+    :return: Dictionary of question IDs to their corresponding chapter IDs.
+    """
+    chapter_ids_for_questions = {}
+    if not question_ids:
+        return chapter_ids_for_questions
+
+    connection = create_pg_connection(pg_connection_pool)
+    try:
+        with connection.cursor() as cursor:
+            format_strings = ','.join(['%s'] * len(question_ids))
+            cursor.execute(f"SELECT QuestionID, ChapterID FROM Questions WHERE QuestionID IN ({format_strings})", tuple(question_ids))
+            for question_id, chapter_id in cursor.fetchall():
+                chapter_ids_for_questions[question_id] = chapter_id
+    except Exception as e:
+        print(f"Error fetching chapter IDs for questions: {e}")
+    finally:
+        release_pg_connection(pg_connection_pool, connection)
+
+    return chapter_ids_for_questions
+
+def get_student_chapter_weightage(student_id, subject_id):
+    """
+    Retrieves and rounds the weightage for chapters in a subject.
+
+    :param subject_id: ID of the subject.
+    :return: Dictionary of chapter ID to rounded weightage.
+    """
+    connection = create_pg_connection(pg_connection_pool)
+    cursor = connection.cursor()
+    weightages = {}
+
+    try:
+        cursor.execute("SELECT ChapterWeightage FROM StudentChapterWeightage WHERE SubjectID = %s and StudentID = %s ORDER BY studentchapterweightageid DESC LIMIT 1", (subject_id,student_id))
+        for result in cursor.fetchall():
+            # Round weightage to 4 decimal places
+            # rounded_weightage = round(weightage, 4)
+            chappterweightage = result[0]
+            weightages =  {key: round(value, 4) for key, value in chappterweightage.items()}
+            # weightages[chapter_id] = rounded_weightage
+    except Exception as e:
+        print(f"Error fetching chapter weightages: {e}")
+    finally:
+        release_pg_connection(pg_connection_pool,connection)
+
+    return weightages
+
+def weighted_question_selection(question_ids, weightage, num_questions, used_questions):
+    """
+    Selects questions based on chapter weightage, allowing for repetitions if necessary.
+
+    :param question_ids: List of all question IDs eligible for selection.
+    :param weightage: Dictionary mapping chapter IDs to their weightage.
+    :param num_questions: Number of questions to select.
+    :param used_questions: Set of question IDs that have been used previously.
+    :return: List of selected question IDs.
+    """
+    question_ids = list(set(question_ids))
+    # Fetch chapter IDs for all questions
+    chapter_ids_for_questions = get_chapter_ids_for_questions(question_ids)
+
+    # Calculate total weightage for normalization
+    total_weightage = sum(weightage.values())
+    total_required_question= num_questions
+    total_chapter_weightage = 100
+    # Normalize weightage for each chapter
+    normalized_weightage = {chapter_id: weight / total_weightage for chapter_id, weight in weightage.items()}
+    no_of_chapter_questions = {chapter_id: int((weight *total_required_question)/total_chapter_weightage) for chapter_id, weight in weightage.items()}
+    # Prepare a weighted list of questions for selection
+    weighted_questions = []
+    for question_id in question_ids:
+        chapter_id = chapter_ids_for_questions.get(question_id)
+        if chapter_id and chapter_id in normalized_weightage:
+            # The number of times a question is added is proportional to its chapter's weightage
+            repetitions = int(normalized_weightage[chapter_id] * 100)
+            if no_of_chapter_questions[chapter_id] > 0:
+                weighted_questions.append(question_id)
+                no_of_chapter_questions[chapter_id] -=1
+            # weighted_questions += [question_id] * repetitions
+
+    # If the weighted list has enough questions for selection, perform the selection
+    if len(weighted_questions) >= num_questions:
+        selected_questions = list(set(random.sample(weighted_questions, num_questions)))
+    else:
+        # If not enough questions in the weighted list, fill the remainder with random choices, allowing repetitions
+        remainder = num_questions - len(weighted_questions)
+
+        additional_questions = set(random.choices(question_ids, k=remainder))
+        selected_questions = weighted_questions + list(additional_questions)
+    return selected_questions
+
+def select_questions(cur, chapters, used_questions, total_questions, subject_id, student_id):
     selected_questions = []
     
     # Gather all available questions from the active chapters and their active subtopics
     all_questions = []
+    chapters_weightage = get_student_chapter_weightage(student_id, subject_id)
     for chapter_id in chapters:
         # Select questions from the chapters where the corresponding subtopics are active or if there is no subtopic associated with the question
         cur.execute("""
@@ -143,7 +239,7 @@ def select_questions(cur, chapters, used_questions, total_questions, subject_id)
         # Exclude already used questions
         chapter_questions = [q for q in chapter_questions if q not in used_questions]
         all_questions.extend(chapter_questions)
-
+    selected_questions = weighted_question_selection(all_questions, chapters_weightage, total_questions, used_questions)
     # Randomly select questions ensuring no repetition
     while len(selected_questions) < total_questions and all_questions:
         selected_question = random.choice(all_questions)

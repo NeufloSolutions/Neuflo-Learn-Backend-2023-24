@@ -26,8 +26,6 @@ from opencensus.trace.tracer import Tracer
 from opencensus.trace.samplers import ProbabilitySampler
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 import logging
-from logging import StreamHandler
-import sys
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry import trace
@@ -36,6 +34,7 @@ from opentelemetry.trace import (
 )
 
 from opentelemetry.propagate import extract
+from logging import getLogger, INFO
 
 os.environ["APPLICATIONINSIGHTS_CONNECTION_STRING"] = r"InstrumentationKey=66db3b47-d39b-47e4-8430-e5e04da1435c;IngestionEndpoint=https://centralindia-0.in.applicationinsights.azure.com/;LiveEndpoint=https://centralindia.livediagnostics.monitor.azure.com/"
 
@@ -47,18 +46,7 @@ if os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
 tracer = trace.get_tracer(__name__,
                           tracer_provider=get_tracer_provider())
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-logger.propagate = False
-
-# Ensure logs are written to stdout/stderr
-stdout_handler = StreamHandler(sys.stdout)
-stderr_handler = StreamHandler(sys.stderr)
-logger.addHandler(stdout_handler)
-logger.addHandler(stderr_handler)
-
-# Example log
-logger.info("This is a test log message.")
+logger = getLogger(__name__)
 
 app = FastAPI()
 app.add_middleware(LogLatencyMiddleware)
