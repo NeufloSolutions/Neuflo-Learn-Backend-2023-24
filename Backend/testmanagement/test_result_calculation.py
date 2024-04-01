@@ -1,4 +1,5 @@
 import datetime
+import json
 from Backend.dbconfig.db_connection import create_pg_connection, release_pg_connection, pg_connection_pool
 
 def calculate_section_practice_test_results(student_id, test_instance_id, subject_code):
@@ -204,8 +205,8 @@ def calculate_practice_test_results(cur, student_id, test_instance_id, practice_
 
     # Update TestHistory table
     cur.execute("""
-        INSERT INTO TestHistory (TestInstanceID, StudentID, Score, QuestionsAttempted, CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds, LastTestAttempt)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO TestHistory (TestInstanceID, StudentID, Score, , CorrectAnswers, IncorrectAnswers, AverageAnsweringTimeInSeconds, LastTestAttempt)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)QuestionsAttempted
         ON CONFLICT (TestInstanceID, StudentID)
         DO UPDATE SET 
             Score = EXCLUDED.Score, 
@@ -237,7 +238,7 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
         print("Entering calculate_mock_test_results")
         # Retrieve responses, including subject and section information
         cur.execute("""
-            SELECT SR.QuestionID, SR.StudentResponse, Q.Answer, CH.SubjectID, NMTQ.Section, SR.AnsweringTimeInSeconds, SR.ResponseDate
+            SELECT SR.QuestionID, SR.StudentResponse, Q.Answer, CH.SubjectID,CH.ChapterID, NMTQ.Section, SR.AnsweringTimeInSeconds, SR.ResponseDate
             FROM StudentResponses SR
             JOIN Questions Q ON SR.QuestionID = Q.QuestionID
             JOIN Chapters CH ON Q.ChapterID = CH.ChapterID
@@ -254,11 +255,17 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
         correct_answers = 0
         incorrect_answers = 0
         total_answering_time = 0
-
-        for question_id, student_response, answer, subject_id, section, answering_time, response_date in responses:
+        chapters_total_correct_answer = {}
+        for question_id, student_response, answer, subject_id,chapter_id, section, answering_time, response_date in responses:
             correct, incorrect = evaluate_response(student_response, answer)
             if correct:
                 correct_answers += 1
+                if subject_id not in chapters_total_correct_answer:
+                    chapters_total_correct_answer[subject_id] = {}
+                if chapter_id not in chapters_total_correct_answer[subject_id]:
+                    chapters_total_correct_answer[subject_id][chapter_id] = 1
+                else:
+                    chapters_total_correct_answer[subject_id][chapter_id] += 1
                 correct_questions.append(question_id)
             elif incorrect:
                 incorrect_answers += 1
@@ -276,7 +283,19 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
             """, (answer_correct, student_id, question_id, test_instance_id))
 
             total_answering_time += answering_time if answering_time else 0
-
+        for subject_id, chapters_correct_answer in chapters_total_correct_answer.items():
+            chapter_weightage = {key: value / correct_answers for key, value in chapters_correct_answer.items()}
+            sum_values = sum(chapter_weightage.values())
+            if sum_values < 1:
+                coefficient = 1 / sum_values
+                # Multiply all values by the coefficient
+                chapter_weightage = {key: value * coefficient for key, value in chapter_weightage.items()}
+            cur.execute("""
+            INSERT INTO StudentChapterWeightage ( StudentID, SubjectID, ChapterWeightage)
+            VALUES (%s, %s, %s)
+            """, (student_id, subject_id, json.dumps(chapter_weightage)
+ ))
+        
         # Sorting the question lists
         correct_questions.sort()
         incorrect_questions.sort()
@@ -285,7 +304,7 @@ def calculate_mock_test_results(cur, student_id, test_instance_id, test_id):
         avg_answering_time = total_answering_time / len(responses) if responses else 0
         score = correct_answers * 4 - incorrect_answers  # Scoring logic for mock tests
 
-        last_response_date = max(r[6] for r in responses) if responses else None
+        last_response_date = max(r[7] for r in responses) if responses else None
 
         # Update TestHistory table
         cur.execute("""

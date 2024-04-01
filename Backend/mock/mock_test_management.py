@@ -34,8 +34,6 @@ def generate_mock_test(student_id):
                 """, (mock_test_id, student_id,))
                 conn.commit()
                 return {"message": "Mock test generated successfully", "testInstanceID": test_instance_id}
-            else:
-                print("Failed", mock_test_id, mock_test_id)
     except Exception as e:
         conn.rollback()
         return {"message": f"An error occurred: {str(e)}"}
@@ -119,7 +117,6 @@ def select_questions_for_subject(subject_id, student_id, section, current_select
     print("selected_questions question:", len(selected_questions))
     # Trim to required size to handle any over-selection
     selected_questions = list(set(selected_questions))[:total_questions_required]
-    print("selected_questions after remove duplicate:", len(selected_questions))
     # Update the cache with the newly selected questions
     cache_questions(student_id, "mock", list(used_questions | set(selected_questions)))
 
@@ -272,10 +269,11 @@ def weighted_question_selection(question_ids, weightage, num_questions, used_que
 
     # Calculate total weightage for normalization
     total_weightage = sum(weightage.values())
-
+    total_required_question= num_questions
+    total_chapter_weightage = 100
     # Normalize weightage for each chapter
     normalized_weightage = {chapter_id: weight / total_weightage for chapter_id, weight in weightage.items()}
-
+    no_of_chapter_questions = {chapter_id: int((weight *total_required_question)/total_chapter_weightage) for chapter_id, weight in weightage.items()}
     # Prepare a weighted list of questions for selection
     weighted_questions = []
     for question_id in question_ids:
@@ -283,7 +281,10 @@ def weighted_question_selection(question_ids, weightage, num_questions, used_que
         if chapter_id and chapter_id in normalized_weightage:
             # The number of times a question is added is proportional to its chapter's weightage
             repetitions = int(normalized_weightage[chapter_id] * 100)
-            weighted_questions += [question_id] * repetitions
+            if no_of_chapter_questions[chapter_id] > 0:
+                weighted_questions.append(question_id)
+                no_of_chapter_questions[chapter_id] -=1
+            # weighted_questions += [question_id] * repetitions
 
     # If the weighted list has enough questions for selection, perform the selection
     if len(weighted_questions) >= num_questions:
@@ -354,8 +355,9 @@ def create_test_instance(student_id, mock_test_id, test_instance_id, question_id
             """
             psycopg2.extras.execute_values(cursor, insert_query, questions_data)
         except Exception as e:
-            print("Error", e)
-
+            print("Exception error")
+            print(e)
+        print("TEST INstance ID", test_instance_id)
         # Insert into TestInstances
         cursor.execute("INSERT INTO TestInstances (TestInstanceID, StudentID, TestID, TestType) VALUES (%s, %s, %s, 'Mock')", (test_instance_id, student_id, mock_test_id))
 
