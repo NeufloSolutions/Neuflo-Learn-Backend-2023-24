@@ -68,23 +68,51 @@ def fetch_questions(cur, chapter_ids: list, total_questions: int):
 def format_questions(cur, question_ids: list):
     formatted_questions = []
     
+    # Prepare placeholders for the IN clause in SQL query
     question_placeholders = ','.join(['%s'] * len(question_ids))
+    
+    # Fetch question details
     cur.execute(f"""
-        SELECT q.QuestionID, q.Question, q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.Answer, q.Explanation, i.ImageURL 
+        SELECT q.QuestionID, q.Question, q.OptionA, q.OptionB, q.OptionC, q.OptionD, q.Answer, q.Explanation, q.HasImage
         FROM Questions q
-        LEFT JOIN Images i ON q.QuestionID = i.QuestionID
         WHERE q.QuestionID IN ({question_placeholders})
     """, tuple(question_ids))
     
+    # Temporary storage for question IDs to fetch images in a separate query
+    questions_with_images = []
+    question_details_map = {}
     for row in cur.fetchall():
-        formatted_questions.append({
-            "question_id": row[0],
-            "question": row[1],
-            "options": {"A": row[2], "B": row[3], "C": row[4], "D": row[5]},
-            "answer": row[6],
-            "explanation": row[7],
-            "image_url": row[8]  # This could be None if no image is associated
-        })
+        question_id, question, option_a, option_b, option_c, option_d, answer, explanation, has_image = row
+        question_details_map[question_id] = {
+            "question_id": question_id,
+            "question": question,
+            "options": {"A": option_a, "B": option_b, "C": option_c, "D": option_d},
+            "answer": answer,
+            "explanation": explanation,
+            "images": []  # Initialize as empty; images will be added if present
+        }
+        if has_image:
+            questions_with_images.append(question_id)
+    
+    # Fetch and associate images if there are any questions with images
+    if questions_with_images:
+        image_placeholders = ','.join(['%s'] * len(questions_with_images))
+        cur.execute(f"""
+            SELECT i.QuestionID, i.ImageURL, i.ContentType
+            FROM Images i
+            WHERE i.QuestionID IN ({image_placeholders})
+        """, tuple(questions_with_images))
+        
+        for row in cur.fetchall():
+            question_id, image_url, content_type = row
+            # Append image details to the respective question
+            question_details_map[question_id]['images'].append({
+                "URL": image_url,
+                "Type": content_type
+            })
+    
+    # Aggregate the final formatted questions list
+    formatted_questions = list(question_details_map.values())
     
     return formatted_questions
 
